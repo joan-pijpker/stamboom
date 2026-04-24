@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+{% block title %}{{ persoon.voornaam }} {{ persoon.achternaam }} — Stamboom{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2>
+    {{ persoon.voornaam }} {{ persoon.achternaam }}
+    {% if persoon.geslacht %}
+    <span class="badge badge-{{ persoon.geslacht.value }} fs-6">{{ persoon.geslacht.value }}</span>
+    {% endif %}
+  </h2>
+  <div class="d-flex gap-2">
+    <a href="/personen/{{ persoon.id }}/bewerken" class="btn btn-outline-primary btn-sm">
+      <i class="bi bi-pencil"></i> Bewerken
+    </a>
+    <form method="post" action="/personen/{{ persoon.id }}/verwijderen"
+          onsubmit="return confirm('Weet je zeker dat je {{ persoon.voornaam }} wilt verwijderen?')">
+      <button type="submit" class="btn btn-outline-danger btn-sm">
+        <i class="bi bi-trash"></i> Verwijderen
+      </button>
+    </form>
+  </div>
+</div>
+
+<div class="row g-4">
+  <!-- Persoonsgegevens -->
+  <div class="col-lg-5">
+    <div class="card mb-3">
+      <div class="card-header fw-semibold"><i class="bi bi-person"></i> Persoonsgegevens</div>
+      <ul class="list-group list-group-flush">
+        {% if persoon.geboorte_datum or persoon.geboorte_plaats %}
+        <li class="list-group-item">
+          <i class="bi bi-star text-muted me-2"></i><strong>Geboorte</strong><br>
+          <span class="ms-4">
+            {% if persoon.geboorte_datum %}{{ persoon.geboorte_datum.strftime('%d-%m-%Y') }}{% endif %}
+            {% if persoon.geboorte_plaats %} — {{ persoon.geboorte_plaats }}{% endif %}
+          </span>
+        </li>
+        {% endif %}
+        {% if persoon.sterf_datum or persoon.sterf_plaats %}
+        <li class="list-group-item">
+          <i class="bi bi-cross text-muted me-2"></i><strong>Overlijden</strong><br>
+          <span class="ms-4">
+            {% if persoon.sterf_datum %}{{ persoon.sterf_datum.strftime('%d-%m-%Y') }}{% endif %}
+            {% if persoon.sterf_plaats %} — {{ persoon.sterf_plaats }}{% endif %}
+          </span>
+        </li>
+        {% endif %}
+        {% if persoon.begraven_locatie %}
+        <li class="list-group-item">
+          <i class="bi bi-geo-alt text-muted me-2"></i><strong>Begraven</strong><br>
+          <span class="ms-4">{{ persoon.begraven_locatie }}</span>
+        </li>
+        {% endif %}
+        {% if persoon.notities %}
+        <li class="list-group-item">
+          <i class="bi bi-chat-text text-muted me-2"></i><strong>Notities</strong><br>
+          <span class="ms-4">{{ persoon.notities }}</span>
+        </li>
+        {% endif %}
+      </ul>
+    </div>
+
+    <!-- Relaties -->
+    <div class="card mb-3">
+      <div class="card-header fw-semibold d-flex justify-content-between">
+        <span><i class="bi bi-heart"></i> Relaties</span>
+        <a href="/relaties/nieuw?persoon_a={{ persoon.id }}" class="btn btn-sm btn-outline-primary">
+          <i class="bi bi-plus"></i> Toevoegen
+        </a>
+      </div>
+      {% if persoon.relaties %}
+      <ul class="list-group list-group-flush">
+        {% for rel in persoon.relaties %}
+        <li class="list-group-item">
+          {% set partner = rel.persoon_b if rel.persoon_a_id == persoon.id else rel.persoon_a %}
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <span class="badge {% if rel.type.value == 'getrouwd' %}bg-success{% elif rel.type.value == 'gescheiden' %}bg-danger{% else %}bg-secondary{% endif %} me-2">
+                {{ rel.type.value }}
+              </span>
+              <a href="/personen/{{ partner.id }}">{{ partner.volledige_naam }}</a>
+              {% if rel.datum_start %}
+              <small class="text-muted ms-1">
+                ({{ rel.datum_start.strftime('%d-%m-%Y') }}
+                {% if rel.plaats_start %} — {{ rel.plaats_start }}{% endif %})
+              </small>
+              {% endif %}
+            </div>
+            <a href="/relaties/{{ rel.id }}" class="btn btn-sm btn-outline-secondary">
+              <i class="bi bi-pencil-square"></i>
+            </a>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="card-body text-muted">Geen relaties geregistreerd.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <!-- Ouders -->
+    <div class="card mb-3">
+      <div class="card-header fw-semibold"><i class="bi bi-arrow-up"></i> Ouders</div>
+      {% if persoon.kind_van %}
+      <ul class="list-group list-group-flush">
+        {% for oud in persoon.kind_van %}
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <div>
+            <a href="/personen/{{ oud.ouder.id }}">{{ oud.ouder.volledige_naam }}</a>
+            <span class="badge bg-light text-dark ms-2">{{ oud.type.value }}</span>
+          </div>
+          <form method="post" action="/personen/{{ persoon.id }}/ouderschap/{{ oud.id }}/verwijderen">
+            <button type="submit" class="btn btn-sm btn-outline-danger">
+              <i class="bi bi-x"></i>
+            </button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="card-body text-muted">Geen ouders geregistreerd.</div>
+      {% endif %}
+      <div class="card-footer">
+        <form method="post" action="/personen/{{ persoon.id }}/ouderschap" class="row g-2">
+          <div class="col">
+            <select class="form-select form-select-sm" name="ouder_id" required>
+              <option value="">— Selecteer ouder —</option>
+              {% for p in alle_personen %}
+              <option value="{{ p.id }}">{{ p.volledige_naam }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-auto">
+            <select class="form-select form-select-sm" name="type">
+              {% for t in ouderschap_typen %}
+              <option value="{{ t }}">{{ t }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-outline-primary">
+              <i class="bi bi-plus"></i> Ouder toevoegen
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Kinderen -->
+    <div class="card mb-3">
+      <div class="card-header fw-semibold"><i class="bi bi-arrow-down"></i> Kinderen</div>
+      {% if persoon.ouder_van %}
+      <ul class="list-group list-group-flush">
+        {% for oud in persoon.ouder_van %}
+        <li class="list-group-item">
+          <a href="/personen/{{ oud.kind.id }}">{{ oud.kind.volledige_naam }}</a>
+          <span class="badge bg-light text-dark ms-2">{{ oud.type.value }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="card-body text-muted">Geen kinderen geregistreerd.</div>
+      {% endif %}
+    </div>
+
+    <!-- Bijlagen -->
+    <div class="card mb-3">
+      <div class="card-header fw-semibold"><i class="bi bi-paperclip"></i> Bijlagen</div>
+      {% if persoon.bijlagen %}
+      <ul class="list-group list-group-flush">
+        {% for b in persoon.bijlagen %}
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <div>
+            {% if b.type.value == 'foto' %}
+            <i class="bi bi-image text-primary me-2"></i>
+            {% elif b.type.value == 'document' %}
+            <i class="bi bi-file-earmark-text text-success me-2"></i>
+            {% else %}
+            <i class="bi bi-paperclip me-2"></i>
+            {% endif %}
+            <a href="/uploads/{{ persoon.id }}/{{ b.bestandsnaam }}" target="_blank">{{ b.bestandsnaam }}</a>
+            {% if b.omschrijving %}
+            <small class="text-muted ms-2">{{ b.omschrijving }}</small>
+            {% endif %}
+          </div>
+          <form method="post" action="/personen/{{ persoon.id }}/bijlagen/{{ b.id }}/verwijderen">
+            <button type="submit" class="btn btn-sm btn-outline-danger">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="card-body text-muted">Nog geen bijlagen.</div>
+      {% endif %}
+      <div class="card-footer">
+        <form method="post" action="/personen/{{ persoon.id }}/bijlagen" enctype="multipart/form-data" class="row g-2">
+          <div class="col">
+            <input type="file" class="form-control form-control-sm" name="bestand" required>
+          </div>
+          <div class="col-auto">
+            <select class="form-select form-select-sm" name="type">
+              <option value="foto">Foto</option>
+              <option value="document">Document</option>
+              <option value="overig">Overig</option>
+            </select>
+          </div>
+          <div class="col">
+            <input type="text" class="form-control form-control-sm" name="omschrijving" placeholder="Omschrijving (optioneel)">
+          </div>
+          <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-outline-primary">
+              <i class="bi bi-upload"></i> Uploaden
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

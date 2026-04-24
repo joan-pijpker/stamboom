@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}{% if persoon %}{{ persoon.voornaam }} bewerken{% else %}Nieuw persoon{% endif %} — Stamboom{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header">
+        <h4 class="mb-0">
+          {% if persoon %}
+            <i class="bi bi-pencil"></i> {{ persoon.voornaam }} {{ persoon.achternaam }} bewerken
+          {% else %}
+            <i class="bi bi-person-plus"></i> Nieuw persoon toevoegen
+          {% endif %}
+        </h4>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{% if persoon %}/personen/{{ persoon.id }}/bewerken{% else %}/personen/nieuw{% endif %}">
+          <div class="row mb-3">
+            <div class="col">
+              <label class="form-label fw-semibold">Voornaam *</label>
+              <input type="text" class="form-control" name="voornaam" value="{{ persoon.voornaam if persoon else '' }}" required>
+            </div>
+            <div class="col">
+              <label class="form-label fw-semibold">Achternaam *</label>
+              <input type="text" class="form-control" name="achternaam" value="{{ persoon.achternaam if persoon else '' }}" required>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Geslacht</label>
+            <select class="form-select" name="geslacht">
+              <option value="">— niet opgegeven —</option>
+              {% for g in geslacht_opties %}
+              <option value="{{ g.value }}" {% if persoon and persoon.geslacht == g %}selected{% endif %}>
+                {{ g.value }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <hr>
+          <h6 class="text-muted">Geboorte</h6>
+          <div class="row mb-3">
+            <div class="col">
+              <label class="form-label">Datum</label>
+              <input type="date" class="form-control" name="geboorte_datum"
+                value="{{ persoon.geboorte_datum.isoformat() if persoon and persoon.geboorte_datum else '' }}">
+            </div>
+            <div class="col">
+              <label class="form-label">Plaats</label>
+              <input type="text" class="form-control" name="geboorte_plaats"
+                value="{{ persoon.geboorte_plaats if persoon and persoon.geboorte_plaats else '' }}">
+            </div>
+          </div>
+
+          <hr>
+          <h6 class="text-muted">Overlijden</h6>
+          <div class="row mb-3">
+            <div class="col">
+              <label class="form-label">Datum</label>
+              <input type="date" class="form-control" name="sterf_datum"
+                value="{{ persoon.sterf_datum.isoformat() if persoon and persoon.sterf_datum else '' }}">
+            </div>
+            <div class="col">
+              <label class="form-label">Plaats</label>
+              <input type="text" class="form-control" name="sterf_plaats"
+                value="{{ persoon.sterf_plaats if persoon and persoon.sterf_plaats else '' }}">
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Begraafplaats</label>
+            <input type="text" class="form-control" name="begraven_locatie"
+              value="{{ persoon.begraven_locatie if persoon and persoon.begraven_locatie else '' }}">
+          </div>
+
+          <hr>
+          <div class="mb-4">
+            <label class="form-label">Notities</label>
+            <textarea class="form-control" name="notities" rows="3">{{ persoon.notities if persoon and persoon.notities else '' }}</textarea>
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-check-lg"></i> Opslaan
+            </button>
+            <a href="{% if persoon %}/personen/{{ persoon.id }}{% else %}/personen/{% endif %}" class="btn btn-outline-secondary">
+              Annuleren
+            </a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

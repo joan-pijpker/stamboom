@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}GEDCOM — Stamboom{% endblock %}
+
+{% block content %}
+<h2 class="mb-4"><i class="bi bi-arrow-left-right"></i> GEDCOM import / export</h2>
+
+{% if request.query_params.get('import_ok') %}
+<div class="alert alert-success alert-dismissible">
+  <i class="bi bi-check-circle"></i>
+  Import geslaagd: {{ request.query_params.get('import_ok') }} personen toegevoegd.
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+<div class="row g-4">
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold"><i class="bi bi-upload"></i> Importeren</div>
+      <div class="card-body">
+        <p class="text-muted">
+          Importeer een bestaande stamboom uit een <code>.ged</code> bestand (GEDCOM 5.5 formaat).
+          Personen en families worden toegevoegd aan de huidige database.
+        </p>
+        <form method="post" action="/gedcom/importeer" enctype="multipart/form-data">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">GEDCOM bestand (.ged)</label>
+            <input type="file" class="form-control" name="bestand" accept=".ged,.GED" required>
+          </div>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-upload"></i> Importeren
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card h-100">
+      <div class="card-header fw-semibold"><i class="bi bi-download"></i> Exporteren</div>
+      <div class="card-body">
+        <p class="text-muted">
+          Exporteer de volledige stamboom als GEDCOM 5.5 bestand. Dit bestand is compatible met
+          Ancestry, MyHeritage, Gramps en andere genealogie-software.
+        </p>
+        <a href="/gedcom/exporteer" class="btn btn-success">
+          <i class="bi bi-download"></i> Downloaden als .ged
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

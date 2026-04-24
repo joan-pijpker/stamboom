@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Stamboom — Welkom{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-4">
+  <div class="col-lg-8 text-center">
+    <h1 class="display-5 fw-bold mb-3"><i class="bi bi-tree"></i> Stamboom</h1>
+    <p class="lead text-muted mb-5">Beheer je familie stamboom — personen, relaties, kinderen en bijlagen.</p>
+  </div>
+</div>
+
+<div class="row g-4 justify-content-center">
+  <div class="col-md-4">
+    <a href="/stamboom" class="text-decoration-none">
+      <div class="card text-center p-4 h-100 card-hover">
+        <i class="bi bi-diagram-3 display-4 text-primary mb-3"></i>
+        <h5>Stamboom</h5>
+        <p class="text-muted small">Bekijk de interactieve familievisualisatie</p>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-4">
+    <a href="/personen/" class="text-decoration-none">
+      <div class="card text-center p-4 h-100 card-hover">
+        <i class="bi bi-people display-4 text-success mb-3"></i>
+        <h5>Personen <span class="badge bg-secondary">{{ aantal_personen }}</span></h5>
+        <p class="text-muted small">Bekijk en beheer alle personen</p>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-4">
+    <a href="/relaties/" class="text-decoration-none">
+      <div class="card text-center p-4 h-100 card-hover">
+        <i class="bi bi-heart display-4 text-danger mb-3"></i>
+        <h5>Relaties <span class="badge bg-secondary">{{ aantal_relaties }}</span></h5>
+        <p class="text-muted small">Huwelijken, scheidingen en verbintenissen</p>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-4">
+    <a href="/gedcom/" class="text-decoration-none">
+      <div class="card text-center p-4 h-100 card-hover">
+        <i class="bi bi-arrow-left-right display-4 text-info mb-3"></i>
+        <h5>GEDCOM</h5>
+        <p class="text-muted small">Importeer of exporteer je stamboom</p>
+      </div>
+    </a>
+  </div>
+</div>
+
+<style>
+  .card-hover:hover { box-shadow: 0 4px 12px rgba(0,0,0,.15); transition: box-shadow .2s; color: inherit; }
+  .card-hover { transition: box-shadow .2s; color: inherit; }
+</style>
+{% endblock %}

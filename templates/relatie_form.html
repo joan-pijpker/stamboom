@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}{% if relatie %}Relatie bewerken{% else %}Nieuwe relatie{% endif %} — Stamboom{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header">
+        <h4 class="mb-0">
+          {% if relatie %}
+            <i class="bi bi-pencil"></i> Relatie bewerken
+          {% else %}
+            <i class="bi bi-heart"></i> Nieuwe relatie toevoegen
+          {% endif %}
+        </h4>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{% if relatie %}/relaties/{{ relatie.id }}/bewerken{% else %}/relaties/nieuw{% endif %}">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Persoon A *</label>
+            <select class="form-select" name="persoon_a_id" required>
+              <option value="">— Selecteer persoon —</option>
+              {% for p in personen %}
+              <option value="{{ p.id }}"
+                {% if relatie and relatie.persoon_a_id == p.id %}selected
+                {% elif request.query_params.get('persoon_a') == p.id|string %}selected
+                {% endif %}>
+                {{ p.volledige_naam }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Persoon B *</label>
+            <select class="form-select" name="persoon_b_id" required>
+              <option value="">— Selecteer persoon —</option>
+              {% for p in personen %}
+              <option value="{{ p.id }}"
+                {% if relatie and relatie.persoon_b_id == p.id %}selected{% endif %}>
+                {{ p.volledige_naam }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Type *</label>
+            <select class="form-select" name="type" required>
+              {% for t in relatie_typen %}
+              <option value="{{ t.value }}" {% if relatie and relatie.type == t %}selected{% endif %}>
+                {{ t.value | capitalize }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <hr>
+          <h6 class="text-muted">Huwelijk / begin relatie</h6>
+          <div class="row mb-3">
+            <div class="col">
+              <label class="form-label">Datum</label>
+              <input type="date" class="form-control" name="datum_start"
+                value="{{ relatie.datum_start.isoformat() if relatie and relatie.datum_start else '' }}">
+            </div>
+            <div class="col">
+              <label class="form-label">Plaats</label>
+              <input type="text" class="form-control" name="plaats_start"
+                value="{{ relatie.plaats_start if relatie and relatie.plaats_start else '' }}">
+            </div>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label">Datum einde (scheiding)</label>
+            <input type="date" class="form-control" name="datum_einde"
+              value="{{ relatie.datum_einde.isoformat() if relatie and relatie.datum_einde else '' }}">
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-check-lg"></i> Opslaan
+            </button>
+            <a href="/relaties/" class="btn btn-outline-secondary">Annuleren</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

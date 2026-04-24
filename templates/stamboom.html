@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Stamboom visualisatie{% endblock %}
+
+{% block extra_head %}
+<style>
+  .tree-container { background: #fff; border-radius: 8px; min-height: 70vh; position: relative; overflow: hidden; }
+  .f3-cont { width: 100%; height: 75vh; }
+  .person-node { cursor: pointer; }
+  .person-node:hover rect { fill: #e8f4fd !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2><i class="bi bi-diagram-3"></i> Stamboom</h2>
+  <div class="d-flex gap-2 align-items-center">
+    <label class="form-label mb-0 me-1">Startpersoon:</label>
+    <select id="start-persoon" class="form-select form-select-sm" style="width: auto;">
+      <option value="">— Alle personen —</option>
+      {% for p in personen %}
+      <option value="{{ p.id }}">{{ p.volledige_naam }}</option>
+      {% endfor %}
+    </select>
+  </div>
+</div>
+
+<div class="card tree-container p-0">
+  <div id="FamilyChart" class="f3-cont"></div>
+</div>
+
+<div class="mt-3 d-flex gap-3 text-muted small">
+  <span><i class="bi bi-arrows-move"></i> Slepen om te navigeren</span>
+  <span><i class="bi bi-zoom-in"></i> Scroll om te zoomen</span>
+  <span><i class="bi bi-cursor"></i> Klik op persoon voor details</span>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script>
+const BOOM_DATA = {{ boom_data | tojson }};
+
+// Eenvoudige D3 boom visualisatie
+(function() {
+  const container = document.getElementById('FamilyChart');
+  const W = container.clientWidth || 900;
+  const H = container.clientHeight || 600;
+
+  const svg = d3.select('#FamilyChart')
+    .append('svg')
+    .attr('width', '100%')
+    .attr('height', '100%')
+    .attr('viewBox', `0 0 ${W} ${H}`);
+
+  const g = svg.append('g');
+
+  svg.call(d3.zoom().scaleExtent([0.2, 3]).on('zoom', e => g.attr('transform', e.transform)));
+
+  if (!BOOM_DATA.nodes || BOOM_DATA.nodes.length === 0) {
+    g.append('text')
+      .attr('x', W / 2).attr('y', H / 2)
+      .attr('text-anchor', 'middle')
+      .attr('fill', '#6c757d')
+      .text('Nog geen personen — voeg personen en relaties toe.');
+    return;
+  }
+
+  // Bouw een hiërarchie vanuit ouder-kind relaties
+  const nodeMap = {};
+  BOOM_DATA.nodes.forEach(n => nodeMap[n.id] = n);
+
+  // Teken links
+  const link = g.selectAll('.link')
+    .data(BOOM_DATA.links)
+    .enter().append('line')
+    .attr('class', 'link')
+    .attr('stroke', '#adb5bd')
+    .attr('stroke-width', 1.5);
+
+  // Teken nodes
+  const node = g.selectAll('.node')
+    .data(BOOM_DATA.nodes)
+    .enter().append('g')
+    .attr('class', 'person-node')
+    .on('click', (e, d) => window.location.href = `/personen/${d.id}`)
+    .call(d3.drag()
+      .on('start', dragstarted)
+      .on('drag', dragged)
+      .on('end', dragended));
+
+  node.append('rect')
+    .attr('width', 140).attr('height', 60)
+    .attr('x', -70).attr('y', -30)
+    .attr('rx', 8)
+    .attr('fill', d => d.geslacht === 'M' ? '#dbeafe' : d.geslacht === 'V' ? '#fce7f3' : '#f3f4f6')
+    .attr('stroke', d => d.geslacht === 'M' ? '#3b82f6' : d.geslacht === 'V' ? '#ec4899' : '#9ca3af')
+    .attr('stroke-width', 1.5);
+
+  node.append('text')
+    .attr('text-anchor', 'middle').attr('y', -8)
+    .attr('font-size', '13px').attr('font-weight', '600')
+    .attr('fill', '#1f2937')
+    .text(d => d.voornaam);
+
+  node.append('text')
+    .attr('text-anchor', 'middle').attr('y', 8)
+    .attr('font-size', '12px').attr('fill', '#374151')
+    .text(d => d.achternaam);
+
+  node.append('text')
+    .attr('text-anchor', 'middle').attr('y', 24)
+    .attr('font-size', '10px').attr('fill', '#9ca3af')
+    .text(d => {
+      if (d.geboorte_jaar && d.sterf_jaar) return `${d.geboorte_jaar} – ${d.sterf_jaar}`;
+      if (d.geboorte_jaar) return `* ${d.geboorte_jaar}`;
+      return '';
+    });
+
+  // Force simulatie
+  const simulation = d3.forceSimulation(BOOM_DATA.nodes)
+    .force('link', d3.forceLink(BOOM_DATA.links).id(d => d.id).distance(160))
+    .force('charge', d3.forceManyBody().strength(-400))
+    .force('center', d3.forceCenter(W / 2, H / 2))
+    .force('collision', d3.forceCollide(90))
+    .on('tick', ticked);
+
+  function ticked() {
+    link
+      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    node.attr('transform', d => `translate(${d.x},${d.y})`);
+  }
+
+  function dragstarted(e, d) { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
+  function dragged(e, d) { d.fx = e.x; d.fy = e.y; }
+  function dragended(e, d) { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }
+})();
+
+document.getElementById('start-persoon').addEventListener('change', function() {
+  const id = this.value;
+  if (id) window.location.href = `/stamboom?focus=${id}`;
+  else window.location.href = '/stamboom';
+});
+</script>
+{% endblock %}

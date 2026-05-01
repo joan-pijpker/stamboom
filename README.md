@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-# stamboom
-Creeer een stamboom van je familie
-=======
 # Stamboom
 
 Een webapplicatie voor het bijhouden van genealogische gegevens. Leg familieleden, hun onderlinge relaties en ouderschappen vast, voeg foto's en documenten toe, en bekijk de stamboom als interactieve grafiek.
@@ -100,4 +96,3 @@ stamboom/
 | Variabele      | Standaard                  | Omschrijving                        |
 |----------------|----------------------------|-------------------------------------|
 | `DATABASE_URL` | `sqlite:///./stamboom.db`  | Verbindings-URL van de database     |
->>>>>>> bb2b295 (Initiële versie inclusief README en voorbeelddatabase)

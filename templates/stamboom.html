@@ -3,32 +3,39 @@
 
 {% block extra_head %}
 <style>
-  .tree-container { background: #fff; border-radius: 8px; min-height: 70vh; position: relative; overflow: hidden; }
-  .f3-cont { width: 100%; height: 75vh; }
-  .person-node { cursor: pointer; }
-  .person-node:hover rect { fill: #e8f4fd !important; }
+  .tree-wrap {
+    background: var(--tree-bg);
+    border-radius: 8px;
+    min-height: 70vh;
+    overflow: hidden;
+    border: 1px solid var(--bs-border-color);
+  }
+  #tree-svg { display: block; width: 100%; }
+  .person-box { cursor: pointer; }
+  .person-box .box-rect { transition: filter .15s; }
+  .person-box:hover .box-rect { filter: brightness(0.92); }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h2><i class="bi bi-diagram-3"></i> Stamboom</h2>
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h2 class="mb-0"><i class="bi bi-diagram-3"></i> Stamboom</h2>
   <div class="d-flex gap-2 align-items-center">
-    <label class="form-label mb-0 me-1">Startpersoon:</label>
-    <select id="start-persoon" class="form-select form-select-sm" style="width: auto;">
-      <option value="">— Alle personen —</option>
+    <label class="form-label mb-0">Startpersoon:</label>
+    <select id="focus-select" class="form-select form-select-sm" style="width: auto;">
+      <option value="">— Kies persoon —</option>
       {% for p in personen %}
-      <option value="{{ p.id }}">{{ p.volledige_naam }}</option>
+      <option value="{{ p.id }}" {% if p.id == focus %}selected{% endif %}>{{ p.volledige_naam }}</option>
       {% endfor %}
     </select>
   </div>
 </div>
 
-<div class="card tree-container p-0">
-  <div id="FamilyChart" class="f3-cont"></div>
+<div class="tree-wrap">
+  <svg id="tree-svg"></svg>
 </div>
 
-<div class="mt-3 d-flex gap-3 text-muted small">
+<div class="mt-3 d-flex gap-3 small" style="color: var(--bs-secondary-color)">
   <span><i class="bi bi-arrows-move"></i> Slepen om te navigeren</span>
   <span><i class="bi bi-zoom-in"></i> Scroll om te zoomen</span>
   <span><i class="bi bi-cursor"></i> Klik op persoon voor details</span>
@@ -39,107 +46,235 @@
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script>
 const BOOM_DATA = {{ boom_data | tojson }};
+const FOCUS_ID  = {{ focus or 'null' }};
 
-// Eenvoudige D3 boom visualisatie
-(function() {
-  const container = document.getElementById('FamilyChart');
-  const W = container.clientWidth || 900;
-  const H = container.clientHeight || 600;
+const BOX_W     = 158;
+const BOX_H     = 70;
+const BOX_R     = 7;
+const GEN_H     = 160;   // verticale afstand tussen generaties
+const SLOT_W    = BOX_W + 45;
+const MAX_ANC   = 4;     // max vooroudergeneraties omhoog
+const MAX_DESC  = 3;     // max nakomelinggeneraties omlaag
 
-  const svg = d3.select('#FamilyChart')
-    .append('svg')
-    .attr('width', '100%')
-    .attr('height', '100%')
-    .attr('viewBox', `0 0 ${W} ${H}`);
+// Opzoektabellen
+const nodeMap = {};
+BOOM_DATA.nodes.forEach(n => nodeMap[n.id] = n);
 
-  const g = svg.append('g');
+// parentMap: kind-id → [ouder-id, ...] (max 2)
+const parentMap = {};
+// childMap:  ouder-id → [kind-id, ...]
+const childMap  = {};
+BOOM_DATA.links.forEach(l => {
+  const kind  = typeof l.target === 'object' ? l.target.id : l.target;
+  const ouder = typeof l.source === 'object' ? l.source.id : l.source;
+  if (!parentMap[kind]) parentMap[kind] = [];
+  if (parentMap[kind].length < 2) parentMap[kind].push(ouder);
+  if (!childMap[ouder]) childMap[ouder] = [];
+  if (!childMap[ouder].includes(kind)) childMap[ouder].push(kind);
+});
 
-  svg.call(d3.zoom().scaleExtent([0.2, 3]).on('zoom', e => g.attr('transform', e.transform)));
+// ─── Breedte van een nakomeling-deelboom ───────────────────────────────────
+function descWidth(id, gen, seen = new Set()) {
+  if (gen >= MAX_DESC || seen.has(id)) return SLOT_W;
+  seen.add(id);
+  const kids = (childMap[id] || []).filter(c => nodeMap[c] && !seen.has(c));
+  if (!kids.length) return SLOT_W;
+  return Math.max(SLOT_W, kids.reduce((s, c) => s + descWidth(c, gen + 1, new Set(seen)), 0));
+}
 
-  if (!BOOM_DATA.nodes || BOOM_DATA.nodes.length === 0) {
-    g.append('text')
-      .attr('x', W / 2).attr('y', H / 2)
+// ─── Hoofd-tekenroutine ────────────────────────────────────────────────────
+function drawTree(focusId) {
+  const svg   = d3.select('#tree-svg');
+  svg.selectAll('*').remove();
+
+  const svgEl = document.getElementById('tree-svg');
+  const viewW = svgEl.clientWidth || 900;
+  const viewH = Math.max(window.innerHeight * 0.68, 500);
+  svgEl.setAttribute('height', viewH);
+
+  if (!focusId || !nodeMap[focusId]) {
+    svg.attr('viewBox', `0 0 ${viewW} ${viewH}`)
+      .append('text')
+      .attr('x', viewW / 2).attr('y', viewH / 2)
       .attr('text-anchor', 'middle')
-      .attr('fill', '#6c757d')
-      .text('Nog geen personen — voeg personen en relaties toe.');
+      .attr('fill', 'var(--tree-text-muted)').attr('font-size', '16px')
+      .text('Kies een startpersoon om de stamboom te bekijken.');
     return;
   }
 
-  // Bouw een hiërarchie vanuit ouder-kind relaties
-  const nodeMap = {};
-  BOOM_DATA.nodes.forEach(n => nodeMap[n.id] = n);
+  const pos = {};  // id → {x, y}
 
-  // Teken links
-  const link = g.selectAll('.link')
-    .data(BOOM_DATA.links)
-    .enter().append('line')
-    .attr('class', 'link')
-    .attr('stroke', '#adb5bd')
-    .attr('stroke-width', 1.5);
-
-  // Teken nodes
-  const node = g.selectAll('.node')
-    .data(BOOM_DATA.nodes)
-    .enter().append('g')
-    .attr('class', 'person-node')
-    .on('click', (e, d) => window.location.href = `/personen/${d.id}`)
-    .call(d3.drag()
-      .on('start', dragstarted)
-      .on('drag', dragged)
-      .on('end', dragended));
-
-  node.append('rect')
-    .attr('width', 140).attr('height', 60)
-    .attr('x', -70).attr('y', -30)
-    .attr('rx', 8)
-    .attr('fill', d => d.geslacht === 'M' ? '#dbeafe' : d.geslacht === 'V' ? '#fce7f3' : '#f3f4f6')
-    .attr('stroke', d => d.geslacht === 'M' ? '#3b82f6' : d.geslacht === 'V' ? '#ec4899' : '#9ca3af')
-    .attr('stroke-width', 1.5);
-
-  node.append('text')
-    .attr('text-anchor', 'middle').attr('y', -8)
-    .attr('font-size', '13px').attr('font-weight', '600')
-    .attr('fill', '#1f2937')
-    .text(d => d.voornaam);
-
-  node.append('text')
-    .attr('text-anchor', 'middle').attr('y', 8)
-    .attr('font-size', '12px').attr('fill', '#374151')
-    .text(d => d.achternaam);
-
-  node.append('text')
-    .attr('text-anchor', 'middle').attr('y', 24)
-    .attr('font-size', '10px').attr('fill', '#9ca3af')
-    .text(d => {
-      if (d.geboorte_jaar && d.sterf_jaar) return `${d.geboorte_jaar} – ${d.sterf_jaar}`;
-      if (d.geboorte_jaar) return `* ${d.geboorte_jaar}`;
-      return '';
-    });
-
-  // Force simulatie
-  const simulation = d3.forceSimulation(BOOM_DATA.nodes)
-    .force('link', d3.forceLink(BOOM_DATA.links).id(d => d.id).distance(160))
-    .force('charge', d3.forceManyBody().strength(-400))
-    .force('center', d3.forceCenter(W / 2, H / 2))
-    .force('collision', d3.forceCollide(90))
-    .on('tick', ticked);
-
-  function ticked() {
-    link
-      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
-    node.attr('transform', d => `translate(${d.x},${d.y})`);
+  // ── 1. Voorouderposities (slot-gebaseerd, omhoog) ────────────────────────
+  const ancSlots = {};  // id → {gen, slot}
+  function assignAnc(id, gen, slot) {
+    if (!id || gen > MAX_ANC || !nodeMap[id] || ancSlots[id]) return;
+    ancSlots[id] = {gen, slot};
+    const ouders = parentMap[id] || [];
+    if (ouders[0]) assignAnc(ouders[0], gen + 1, 2 * slot);
+    if (ouders[1]) assignAnc(ouders[1], gen + 1, 2 * slot + 1);
   }
+  assignAnc(focusId, 0, 0);
 
-  function dragstarted(e, d) { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
-  function dragged(e, d) { d.fx = e.x; d.fy = e.y; }
-  function dragended(e, d) { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }
-})();
+  const maxAncGen = Math.max(0, ...Object.values(ancSlots).map(s => s.gen));
+  const numSlots  = Math.pow(2, maxAncGen);
+  const ancWidth  = numSlots * SLOT_W;
 
-document.getElementById('start-persoon').addEventListener('change', function() {
-  const id = this.value;
-  if (id) window.location.href = `/stamboom?focus=${id}`;
-  else window.location.href = '/stamboom';
+  Object.entries(ancSlots).forEach(([id, {gen, slot}]) => {
+    const sw = ancWidth / Math.pow(2, gen);
+    pos[id] = {x: slot * sw + sw / 2 - ancWidth / 2, y: -gen * GEN_H};
+  });
+
+  // ── 2. Nakomeling-posities (recursief, omlaag) ───────────────────────────
+  function placeDesc(id, x, y, gen, seen = new Set()) {
+    if (gen > MAX_DESC || seen.has(id)) return;
+    seen.add(id);
+    const kids = (childMap[id] || []).filter(c => nodeMap[c] && !seen.has(c));
+    if (!kids.length) return;
+
+    const totalW = kids.reduce((s, c) => s + descWidth(c, gen + 1, new Set(seen)), 0);
+    let cx = x - totalW / 2;
+    kids.forEach(c => {
+      const w = descWidth(c, gen + 1, new Set(seen));
+      const nx = cx + w / 2;
+      if (!pos[c]) pos[c] = {x: nx, y: y + GEN_H};
+      placeDesc(c, nx, y + GEN_H, gen + 1, new Set(seen));
+      cx += w;
+    });
+  }
+  placeDesc(focusId, pos[focusId].x, 0, 0);
+
+  // ── 3. Groepeer nakomelingen per ouder (voor verbindingslijnen) ───────────
+  // parentToChildren: ouder-id → [kind-id, ...] (alleen zichtbare nodes)
+  const parentToChildren = {};
+  Object.keys(pos).forEach(idStr => {
+    const id = +idStr;
+    if (ancSlots[id]) return;       // voorouder: hieronder apart afgehandeld
+    (parentMap[id] || []).forEach(pid => {
+      if (!pos[pid]) return;
+      if (!parentToChildren[pid]) parentToChildren[pid] = [];
+      parentToChildren[pid].push(id);
+    });
+  });
+
+  // ── 4. SVG-setup ─────────────────────────────────────────────────────────
+  const g = svg.append('g');
+
+  const zoomBehavior = d3.zoom()
+    .scaleExtent([0.1, 4])
+    .on('zoom', e => g.attr('transform', e.transform));
+
+  // Beginpositie: focuspersoon gecentreerd, iets onder het midden
+  const initTy = viewH / 2 + maxAncGen * GEN_H * 0.3 + BOX_H;
+  svg.attr('viewBox', `0 0 ${viewW} ${viewH}`)
+    .call(zoomBehavior)
+    .call(zoomBehavior.transform, d3.zoomIdentity.translate(viewW / 2, initTy));
+
+  const lines = g.append('g');
+
+  // ── 5. Verbindingslijnen ──────────────────────────────────────────────────
+  // A) Voorouders: kind → zijn ouders (omhoog)
+  Object.keys(ancSlots).forEach(idStr => {
+    const id     = +idStr;
+    const child  = pos[id];
+    const ouders = (parentMap[id] || []).filter(pid => pos[pid]);
+    if (!ouders.length) return;
+
+    const jY = child.y - BOX_H / 2 - (GEN_H - BOX_H) / 2;
+
+    // Verticaal omhoog vanuit kind
+    line(lines, child.x, child.y - BOX_H / 2, child.x, jY);
+
+    if (ouders.length === 2) {
+      const p0 = pos[ouders[0]], p1 = pos[ouders[1]];
+      line(lines, p0.x, jY, p1.x, jY);                         // horizontaal
+      line(lines, p0.x, p0.y + BOX_H / 2, p0.x, jY);          // vert. ouder 0
+      line(lines, p1.x, p1.y + BOX_H / 2, p1.x, jY);          // vert. ouder 1
+    } else {
+      const pp = pos[ouders[0]];
+      line(lines, pp.x, pp.y + BOX_H / 2, pp.x, jY);           // vert. naar ouder
+      if (pp.x !== child.x) line(lines, pp.x, jY, child.x, jY); // horizontaal
+    }
+  });
+
+  // B) Nakomelingen: ouder → zijn kinderen (omlaag)
+  Object.entries(parentToChildren).forEach(([pidStr, kids]) => {
+    const pid    = +pidStr;
+    const parent = pos[pid];
+    const jY     = parent.y + BOX_H / 2 + (GEN_H - BOX_H) / 2;
+    const xs     = kids.map(c => pos[c].x);
+    const minX   = Math.min(...xs, parent.x);
+    const maxX   = Math.max(...xs, parent.x);
+
+    line(lines, parent.x, parent.y + BOX_H / 2, parent.x, jY); // vert. ouder
+    line(lines, minX, jY, maxX, jY);                             // horizontale bus
+    kids.forEach(c => {
+      line(lines, pos[c].x, pos[c].y - BOX_H / 2, pos[c].x, jY); // vert. kind
+    });
+  });
+
+  // ── 6. Persoonsboxes ──────────────────────────────────────────────────────
+  Object.keys(pos).forEach(idStr => {
+    const id     = +idStr;
+    const person = nodeMap[id];
+    const p      = pos[id];
+    if (!person || !p) return;
+
+    const gs = person.geslacht || 'X';
+    const grp = g.append('g')
+      .attr('class', 'person-box')
+      .attr('transform', `translate(${p.x},${p.y})`)
+      .on('click', () => window.location.href = `/personen/${id}`);
+
+    grp.append('rect')
+      .attr('class', 'box-rect')
+      .attr('x', -BOX_W / 2).attr('y', -BOX_H / 2)
+      .attr('width', BOX_W).attr('height', BOX_H).attr('rx', BOX_R)
+      .style('fill',   `var(--box-bg-${gs})`)
+      .style('stroke', `var(--box-border-${gs})`)
+      .attr('stroke-width', 2);
+
+    const symbol = gs === 'M' ? '♂' : gs === 'V' ? '♀' : '⚬';
+    const ix = -BOX_W / 2 + 14, iy = -BOX_H / 2 + 13;
+    grp.append('circle').attr('cx', ix).attr('cy', iy).attr('r', 9)
+      .style('fill', `var(--box-border-${gs})`).style('fill-opacity', '.18')
+      .style('stroke', `var(--box-border-${gs})`).attr('stroke-width', 1.5);
+    grp.append('text').attr('x', ix).attr('y', iy + 4)
+      .attr('text-anchor', 'middle').attr('font-size', '11px')
+      .style('fill', `var(--box-border-${gs})`).text(symbol);
+
+    grp.append('text').attr('text-anchor', 'middle').attr('y', -10)
+      .attr('font-size', '13px').attr('font-weight', '700')
+      .style('fill', 'var(--tree-text)').text(person.voornaam);
+
+    grp.append('text').attr('text-anchor', 'middle').attr('y', 6)
+      .attr('font-size', '12px').style('fill', 'var(--tree-text)').text(person.achternaam);
+
+    let jaren = '';
+    if (person.geboorte_jaar && person.sterf_jaar) jaren = `${person.geboorte_jaar}–${person.sterf_jaar}`;
+    else if (person.geboorte_jaar) jaren = `* ${person.geboorte_jaar}`;
+    else if (person.sterf_jaar)    jaren = `† ${person.sterf_jaar}`;
+    if (jaren) {
+      grp.append('text').attr('text-anchor', 'middle').attr('y', 24)
+        .attr('font-size', '10px').style('fill', 'var(--tree-text-muted)').text(jaren);
+    }
+  });
+}
+
+// Hulpfunctie voor een lijnstuk
+function line(parent, x1, y1, x2, y2) {
+  parent.append('line')
+    .attr('x1', x1).attr('y1', y1).attr('x2', x2).attr('y2', y2)
+    .attr('stroke', 'var(--tree-line)').attr('stroke-width', 2);
+}
+
+// Initieel laden
+const startId = FOCUS_ID || (BOOM_DATA.nodes.length ? BOOM_DATA.nodes[0].id : null);
+if (startId && !FOCUS_ID) document.getElementById('focus-select').value = startId;
+drawTree(startId);
+
+document.getElementById('focus-select').addEventListener('change', function() {
+  const id = this.value ? +this.value : null;
+  window.location.href = id ? `/stamboom?focus=${id}` : '/stamboom';
 });
 </script>
 {% endblock %}

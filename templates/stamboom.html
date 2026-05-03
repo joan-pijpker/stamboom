@@ -14,20 +14,44 @@
   .person-box { cursor: pointer; }
   .person-box .box-rect { transition: filter .15s; }
   .person-box:hover .box-rect { filter: brightness(0.92); }
+  #filter-controls { display: none; }
+  #filter-controls.visible { display: flex; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h2 class="mb-0"><i class="bi bi-diagram-3"></i> Stamboom</h2>
-  <div class="d-flex gap-2 align-items-center">
-    <label class="form-label mb-0">Startpersoon:</label>
-    <select id="focus-select" class="form-select form-select-sm" style="width: auto;">
-      <option value="">— Kies persoon —</option>
-      {% for p in personen %}
-      <option value="{{ p.id }}" {% if p.id == focus %}selected{% endif %}>{{ p.volledige_naam }}</option>
-      {% endfor %}
-    </select>
+  <div class="d-flex gap-2 align-items-center flex-wrap">
+    <div class="btn-group btn-group-sm" role="group">
+      <input type="radio" class="btn-check" name="modus" id="modus-volledig" value="volledig" autocomplete="off" checked>
+      <label class="btn btn-outline-primary" for="modus-volledig">
+        <i class="bi bi-diagram-3"></i> Volledig overzicht
+      </label>
+      <input type="radio" class="btn-check" name="modus" id="modus-filter" value="filter" autocomplete="off">
+      <label class="btn btn-outline-primary" for="modus-filter">
+        <i class="bi bi-funnel"></i> Uitsnede
+      </label>
+    </div>
+    <div id="filter-controls" class="d-flex gap-2 align-items-center flex-wrap">
+      <select id="focus-select" class="form-select form-select-sm" style="width: auto; min-width: 160px;">
+        <option value="">— Kies persoon —</option>
+        {% for p in personen %}
+        <option value="{{ p.id }}" {% if p.id == focus %}selected{% endif %}>{{ p.volledige_naam }}</option>
+        {% endfor %}
+      </select>
+      <div class="d-flex align-items-center gap-1">
+        <label class="form-label mb-0 text-nowrap small">Omhoog:</label>
+        <input type="number" id="lagen-omhoog" class="form-control form-control-sm" style="width: 65px;" min="0" max="10" value="4">
+      </div>
+      <div class="d-flex align-items-center gap-1">
+        <label class="form-label mb-0 text-nowrap small">Omlaag:</label>
+        <input type="number" id="lagen-omlaag" class="form-control form-control-sm" style="width: 65px;" min="0" max="10" value="3">
+      </div>
+      <button id="toon-btn" class="btn btn-primary btn-sm">
+        <i class="bi bi-funnel-fill"></i> Tonen
+      </button>
+    </div>
   </div>
 </div>
 
@@ -48,22 +72,17 @@
 const BOOM_DATA = {{ boom_data | tojson }};
 const FOCUS_ID  = {{ focus or 'null' }};
 
-const BOX_W     = 158;
-const BOX_H     = 70;
-const BOX_R     = 7;
-const GEN_H     = 160;   // verticale afstand tussen generaties
-const SLOT_W    = BOX_W + 45;
-const MAX_ANC   = 4;     // max vooroudergeneraties omhoog
-const MAX_DESC  = 3;     // max nakomelinggeneraties omlaag
+const BOX_W  = 158;
+const BOX_H  = 70;
+const BOX_R  = 7;
+const GEN_H  = 160;
+const SLOT_W = BOX_W + 45;
 
-// Opzoektabellen
-const nodeMap = {};
-BOOM_DATA.nodes.forEach(n => nodeMap[n.id] = n);
-
-// parentMap: kind-id → [ouder-id, ...] (max 2)
+const nodeMap   = {};
 const parentMap = {};
-// childMap:  ouder-id → [kind-id, ...]
 const childMap  = {};
+
+BOOM_DATA.nodes.forEach(n => nodeMap[n.id] = n);
 BOOM_DATA.links.forEach(l => {
   const kind  = typeof l.target === 'object' ? l.target.id : l.target;
   const ouder = typeof l.source === 'object' ? l.source.id : l.source;
@@ -73,208 +92,351 @@ BOOM_DATA.links.forEach(l => {
   if (!childMap[ouder].includes(kind)) childMap[ouder].push(kind);
 });
 
-// ─── Breedte van een nakomeling-deelboom ───────────────────────────────────
-function descWidth(id, gen, seen = new Set()) {
-  if (gen >= MAX_DESC || seen.has(id)) return SLOT_W;
-  seen.add(id);
-  const kids = (childMap[id] || []).filter(c => nodeMap[c] && !seen.has(c));
-  if (!kids.length) return SLOT_W;
-  return Math.max(SLOT_W, kids.reduce((s, c) => s + descWidth(c, gen + 1, new Set(seen)), 0));
-}
+const partnerMap = {};
+(BOOM_DATA.partners || []).forEach(p => {
+  if (!partnerMap[p.a]) partnerMap[p.a] = [];
+  if (!partnerMap[p.b]) partnerMap[p.b] = [];
+  if (!partnerMap[p.a].includes(p.b)) partnerMap[p.a].push(p.b);
+  if (!partnerMap[p.b].includes(p.a)) partnerMap[p.b].push(p.a);
+});
 
-// ─── Hoofd-tekenroutine ────────────────────────────────────────────────────
-function drawTree(focusId) {
-  const svg   = d3.select('#tree-svg');
-  svg.selectAll('*').remove();
+// ─── Hulpfuncties ─────────────────────────────────────────────────────────
 
-  const svgEl = document.getElementById('tree-svg');
-  const viewW = svgEl.clientWidth || 900;
-  const viewH = Math.max(window.innerHeight * 0.68, 500);
-  svgEl.setAttribute('height', viewH);
-
-  if (!focusId || !nodeMap[focusId]) {
-    svg.attr('viewBox', `0 0 ${viewW} ${viewH}`)
-      .append('text')
-      .attr('x', viewW / 2).attr('y', viewH / 2)
-      .attr('text-anchor', 'middle')
-      .attr('fill', 'var(--tree-text-muted)').attr('font-size', '16px')
-      .text('Kies een startpersoon om de stamboom te bekijken.');
-    return;
-  }
-
-  const pos = {};  // id → {x, y}
-
-  // ── 1. Voorouderposities (slot-gebaseerd, omhoog) ────────────────────────
-  const ancSlots = {};  // id → {gen, slot}
-  function assignAnc(id, gen, slot) {
-    if (!id || gen > MAX_ANC || !nodeMap[id] || ancSlots[id]) return;
-    ancSlots[id] = {gen, slot};
-    const ouders = parentMap[id] || [];
-    if (ouders[0]) assignAnc(ouders[0], gen + 1, 2 * slot);
-    if (ouders[1]) assignAnc(ouders[1], gen + 1, 2 * slot + 1);
-  }
-  assignAnc(focusId, 0, 0);
-
-  const maxAncGen = Math.max(0, ...Object.values(ancSlots).map(s => s.gen));
-  const numSlots  = Math.pow(2, maxAncGen);
-  const ancWidth  = numSlots * SLOT_W;
-
-  Object.entries(ancSlots).forEach(([id, {gen, slot}]) => {
-    const sw = ancWidth / Math.pow(2, gen);
-    pos[id] = {x: slot * sw + sw / 2 - ancWidth / 2, y: -gen * GEN_H};
-  });
-
-  // ── 2. Nakomeling-posities (recursief, omlaag) ───────────────────────────
-  function placeDesc(id, x, y, gen, seen = new Set()) {
-    if (gen > MAX_DESC || seen.has(id)) return;
-    seen.add(id);
-    const kids = (childMap[id] || []).filter(c => nodeMap[c] && !seen.has(c));
-    if (!kids.length) return;
-
-    const totalW = kids.reduce((s, c) => s + descWidth(c, gen + 1, new Set(seen)), 0);
-    let cx = x - totalW / 2;
-    kids.forEach(c => {
-      const w = descWidth(c, gen + 1, new Set(seen));
-      const nx = cx + w / 2;
-      if (!pos[c]) pos[c] = {x: nx, y: y + GEN_H};
-      placeDesc(c, nx, y + GEN_H, gen + 1, new Set(seen));
-      cx += w;
-    });
-  }
-  placeDesc(focusId, pos[focusId].x, 0, 0);
-
-  // ── 3. Groepeer nakomelingen per ouder (voor verbindingslijnen) ───────────
-  // parentToChildren: ouder-id → [kind-id, ...] (alleen zichtbare nodes)
-  const parentToChildren = {};
-  Object.keys(pos).forEach(idStr => {
-    const id = +idStr;
-    if (ancSlots[id]) return;       // voorouder: hieronder apart afgehandeld
-    (parentMap[id] || []).forEach(pid => {
-      if (!pos[pid]) return;
-      if (!parentToChildren[pid]) parentToChildren[pid] = [];
-      parentToChildren[pid].push(id);
-    });
-  });
-
-  // ── 4. SVG-setup ─────────────────────────────────────────────────────────
-  const g = svg.append('g');
-
-  const zoomBehavior = d3.zoom()
-    .scaleExtent([0.1, 4])
-    .on('zoom', e => g.attr('transform', e.transform));
-
-  // Beginpositie: focuspersoon gecentreerd, iets onder het midden
-  const initTy = viewH / 2 + maxAncGen * GEN_H * 0.3 + BOX_H;
-  svg.attr('viewBox', `0 0 ${viewW} ${viewH}`)
-    .call(zoomBehavior)
-    .call(zoomBehavior.transform, d3.zoomIdentity.translate(viewW / 2, initTy));
-
-  const lines = g.append('g');
-
-  // ── 5. Verbindingslijnen ──────────────────────────────────────────────────
-  // A) Voorouders: kind → zijn ouders (omhoog)
-  Object.keys(ancSlots).forEach(idStr => {
-    const id     = +idStr;
-    const child  = pos[id];
-    const ouders = (parentMap[id] || []).filter(pid => pos[pid]);
-    if (!ouders.length) return;
-
-    const jY = child.y - BOX_H / 2 - (GEN_H - BOX_H) / 2;
-
-    // Verticaal omhoog vanuit kind
-    line(lines, child.x, child.y - BOX_H / 2, child.x, jY);
-
-    if (ouders.length === 2) {
-      const p0 = pos[ouders[0]], p1 = pos[ouders[1]];
-      line(lines, p0.x, jY, p1.x, jY);                         // horizontaal
-      line(lines, p0.x, p0.y + BOX_H / 2, p0.x, jY);          // vert. ouder 0
-      line(lines, p1.x, p1.y + BOX_H / 2, p1.x, jY);          // vert. ouder 1
-    } else {
-      const pp = pos[ouders[0]];
-      line(lines, pp.x, pp.y + BOX_H / 2, pp.x, jY);           // vert. naar ouder
-      if (pp.x !== child.x) line(lines, pp.x, jY, child.x, jY); // horizontaal
-    }
-  });
-
-  // B) Nakomelingen: ouder → zijn kinderen (omlaag)
-  Object.entries(parentToChildren).forEach(([pidStr, kids]) => {
-    const pid    = +pidStr;
-    const parent = pos[pid];
-    const jY     = parent.y + BOX_H / 2 + (GEN_H - BOX_H) / 2;
-    const xs     = kids.map(c => pos[c].x);
-    const minX   = Math.min(...xs, parent.x);
-    const maxX   = Math.max(...xs, parent.x);
-
-    line(lines, parent.x, parent.y + BOX_H / 2, parent.x, jY); // vert. ouder
-    line(lines, minX, jY, maxX, jY);                             // horizontale bus
-    kids.forEach(c => {
-      line(lines, pos[c].x, pos[c].y - BOX_H / 2, pos[c].x, jY); // vert. kind
-    });
-  });
-
-  // ── 6. Persoonsboxes ──────────────────────────────────────────────────────
-  Object.keys(pos).forEach(idStr => {
-    const id     = +idStr;
-    const person = nodeMap[id];
-    const p      = pos[id];
-    if (!person || !p) return;
-
-    const gs = person.geslacht || 'X';
-    const grp = g.append('g')
-      .attr('class', 'person-box')
-      .attr('transform', `translate(${p.x},${p.y})`)
-      .on('click', () => window.location.href = `/personen/${id}`);
-
-    grp.append('rect')
-      .attr('class', 'box-rect')
-      .attr('x', -BOX_W / 2).attr('y', -BOX_H / 2)
-      .attr('width', BOX_W).attr('height', BOX_H).attr('rx', BOX_R)
-      .style('fill',   `var(--box-bg-${gs})`)
-      .style('stroke', `var(--box-border-${gs})`)
-      .attr('stroke-width', 2);
-
-    const symbol = gs === 'M' ? '♂' : gs === 'V' ? '♀' : '⚬';
-    const ix = -BOX_W / 2 + 14, iy = -BOX_H / 2 + 13;
-    grp.append('circle').attr('cx', ix).attr('cy', iy).attr('r', 9)
-      .style('fill', `var(--box-border-${gs})`).style('fill-opacity', '.18')
-      .style('stroke', `var(--box-border-${gs})`).attr('stroke-width', 1.5);
-    grp.append('text').attr('x', ix).attr('y', iy + 4)
-      .attr('text-anchor', 'middle').attr('font-size', '11px')
-      .style('fill', `var(--box-border-${gs})`).text(symbol);
-
-    grp.append('text').attr('text-anchor', 'middle').attr('y', -10)
-      .attr('font-size', '13px').attr('font-weight', '700')
-      .style('fill', 'var(--tree-text)').text(person.voornaam);
-
-    grp.append('text').attr('text-anchor', 'middle').attr('y', 6)
-      .attr('font-size', '12px').style('fill', 'var(--tree-text)').text(person.achternaam);
-
-    let jaren = '';
-    if (person.geboorte_jaar && person.sterf_jaar) jaren = `${person.geboorte_jaar}–${person.sterf_jaar}`;
-    else if (person.geboorte_jaar) jaren = `* ${person.geboorte_jaar}`;
-    else if (person.sterf_jaar)    jaren = `† ${person.sterf_jaar}`;
-    if (jaren) {
-      grp.append('text').attr('text-anchor', 'middle').attr('y', 24)
-        .attr('font-size', '10px').style('fill', 'var(--tree-text-muted)').text(jaren);
-    }
-  });
-}
-
-// Hulpfunctie voor een lijnstuk
-function line(parent, x1, y1, x2, y2) {
+function drawLine(parent, x1, y1, x2, y2) {
   parent.append('line')
     .attr('x1', x1).attr('y1', y1).attr('x2', x2).attr('y2', y2)
     .attr('stroke', 'var(--tree-line)').attr('stroke-width', 2);
 }
 
-// Initieel laden
-const startId = FOCUS_ID || (BOOM_DATA.nodes.length ? BOOM_DATA.nodes[0].id : null);
-if (startId && !FOCUS_ID) document.getElementById('focus-select').value = startId;
-drawTree(startId);
+function renderBox(g, id, p, highlight) {
+  const person = nodeMap[id];
+  if (!person || !p) return;
+  const gs  = person.geslacht || 'X';
+  const grp = g.append('g')
+    .attr('class', 'person-box')
+    .attr('transform', `translate(${p.x},${p.y})`)
+    .on('click', () => window.location.href = `/personen/${id}`);
 
-document.getElementById('focus-select').addEventListener('change', function() {
-  const id = this.value ? +this.value : null;
-  window.location.href = id ? `/stamboom?focus=${id}` : '/stamboom';
-});
+  grp.append('rect')
+    .attr('class', 'box-rect')
+    .attr('x', -BOX_W / 2).attr('y', -BOX_H / 2)
+    .attr('width', BOX_W).attr('height', BOX_H).attr('rx', BOX_R)
+    .style('fill',   `var(--box-bg-${gs})`)
+    .style('stroke', highlight ? 'var(--bs-warning)' : `var(--box-border-${gs})`)
+    .attr('stroke-width', highlight ? 3 : 2);
+
+  const symbol = gs === 'M' ? '♂' : gs === 'V' ? '♀' : '⚬';
+  const ix = -BOX_W / 2 + 14, iy = -BOX_H / 2 + 13;
+  grp.append('circle').attr('cx', ix).attr('cy', iy).attr('r', 9)
+    .style('fill', `var(--box-border-${gs})`).style('fill-opacity', '.18')
+    .style('stroke', `var(--box-border-${gs})`).attr('stroke-width', 1.5);
+  grp.append('text').attr('x', ix).attr('y', iy + 4)
+    .attr('text-anchor', 'middle').attr('font-size', '11px')
+    .style('fill', `var(--box-border-${gs})`).text(symbol);
+
+  grp.append('text').attr('text-anchor', 'middle').attr('y', -10)
+    .attr('font-size', '13px').attr('font-weight', '700')
+    .style('fill', 'var(--tree-text)').text(person.voornaam);
+  grp.append('text').attr('text-anchor', 'middle').attr('y', 6)
+    .attr('font-size', '12px').style('fill', 'var(--tree-text)').text(person.achternaam);
+
+  let jaren = '';
+  if (person.geboorte_jaar && person.sterf_jaar) jaren = `${person.geboorte_jaar}–${person.sterf_jaar}`;
+  else if (person.geboorte_jaar) jaren = `* ${person.geboorte_jaar}`;
+  else if (person.sterf_jaar)    jaren = `† ${person.sterf_jaar}`;
+  if (jaren) {
+    grp.append('text').attr('text-anchor', 'middle').attr('y', 24)
+      .attr('font-size', '10px').style('fill', 'var(--tree-text-muted)').text(jaren);
+  }
+}
+
+// ─── Volledige stamboom ────────────────────────────────────────────────────
+
+function drawFullTree() {
+  const svgEl = document.getElementById('tree-svg');
+  const viewW = svgEl.clientWidth || 900;
+  const viewH = Math.max(window.innerHeight * 0.68, 500);
+  svgEl.setAttribute('height', viewH);
+  const svg = d3.select('#tree-svg');
+  svg.selectAll('*').remove();
+  svg.attr('viewBox', `0 0 ${viewW} ${viewH}`);
+
+  if (!BOOM_DATA.nodes.length) {
+    svg.append('text').attr('x', viewW / 2).attr('y', viewH / 2)
+      .attr('text-anchor', 'middle').attr('fill', 'var(--tree-text-muted)').attr('font-size', '16px')
+      .text('Geen personen gevonden. Voeg personen toe om de stamboom te zien.');
+    return;
+  }
+
+  // Generatieniveau = langste pad van een root naar dit knooppunt
+  const gen = {};
+  BOOM_DATA.nodes.forEach(n => { gen[n.id] = 0; });
+  let changed = true;
+  while (changed) {
+    changed = false;
+    BOOM_DATA.nodes.forEach(n => {
+      const pp = parentMap[n.id] || [];
+      if (!pp.length) return;
+      const newG = Math.max(...pp.map(p => gen[p])) + 1;
+      if (newG > gen[n.id]) { gen[n.id] = newG; changed = true; }
+    });
+  }
+
+  // Subboombreedtes (recursief, cycle-veilig via seen)
+  function subtreeW(id, seen = new Set()) {
+    if (seen.has(id)) return SLOT_W;
+    seen.add(id);
+    const kids = (childMap[id] || []).filter(c => nodeMap[c] && !seen.has(c));
+    return kids.length
+      ? Math.max(SLOT_W, kids.reduce((s, c) => s + subtreeW(c, new Set(seen)), 0))
+      : SLOT_W;
+  }
+
+  // Plaatsing: top-down, sla al geplaatste nodes over
+  const pos = {};
+  function placeNode(id, x, seen = new Set()) {
+    if (pos[id] !== undefined || seen.has(id)) return;
+    seen.add(id);
+    pos[id] = { x, y: gen[id] * GEN_H };
+    const kids = (childMap[id] || []).filter(c => nodeMap[c] && pos[c] === undefined && !seen.has(c));
+    if (!kids.length) return;
+    const totalW = kids.reduce((s, c) => s + subtreeW(c, new Set(seen)), 0);
+    let cx = x - totalW / 2;
+    kids.forEach(c => {
+      const w = subtreeW(c, new Set(seen));
+      placeNode(c, cx + w / 2, new Set(seen));
+      cx += w;
+    });
+  }
+
+  // Roots (geen ouders): sorteer stabiel op id
+  const roots = BOOM_DATA.nodes
+    .filter(n => !(parentMap[n.id] || []).length)
+    .sort((a, b) => a.id - b.id);
+
+  let offsetX = 0;
+  roots.forEach(root => {
+    const w = subtreeW(root.id);
+    placeNode(root.id, offsetX + w / 2);
+    offsetX += w + SLOT_W * 0.5;
+  });
+
+  // Nog niet geplaatste personen (volledig geïsoleerd)
+  BOOM_DATA.nodes.forEach(n => {
+    if (pos[n.id] === undefined) { pos[n.id] = { x: offsetX, y: 0 }; offsetX += SLOT_W; }
+  });
+
+  // Centreer alle posities rond x=0
+  const allX = Object.values(pos).map(p => p.x);
+  const midX = (Math.min(...allX) + Math.max(...allX)) / 2;
+  Object.values(pos).forEach(p => { p.x -= midX; });
+
+  // Auto-fit zoom
+  const allPos = Object.values(pos);
+  const pad = BOX_W * 0.6;
+  const bx  = Math.min(...allPos.map(p => p.x)) - pad;
+  const by  = Math.min(...allPos.map(p => p.y)) - pad;
+  const bw  = Math.max(...allPos.map(p => p.x)) - bx + pad * 2;
+  const bh  = Math.max(...allPos.map(p => p.y)) - by + pad * 2;
+  const sc  = Math.min(viewW / bw, viewH / bh, 1) * 0.9;
+  const tx  = viewW / 2 - sc * (bx + bw / 2);
+  const ty  = viewH / 2 - sc * (by + bh / 2);
+
+  const g    = svg.append('g');
+  const zoom = d3.zoom().scaleExtent([0.05, 4]).on('zoom', e => g.attr('transform', e.transform));
+  svg.call(zoom).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(sc));
+
+  const linesG = g.append('g');
+
+  // Verbindingen: groepeer per gezinsgroep (unieke combinatie van ouders)
+  const families = {};
+  BOOM_DATA.nodes.forEach(n => {
+    if (!pos[n.id]) return;
+    const pp = (parentMap[n.id] || []).filter(p => pos[p]).sort((a, b) => a - b);
+    if (!pp.length) return;
+    const key = pp.join('-');
+    if (!families[key]) families[key] = { parents: pp, children: [] };
+    families[key].children.push(n.id);
+  });
+
+  Object.values(families).forEach(({ parents, children }) => {
+    const parY = pos[parents[0]].y;
+    const kidY = pos[children[0]].y;
+    const jY   = parY + BOX_H / 2 + (kidY - parY - BOX_H) / 2;
+    const allXs = [...parents.map(p => pos[p].x), ...children.map(c => pos[c].x)];
+    drawLine(linesG, Math.min(...allXs), jY, Math.max(...allXs), jY);
+    parents.forEach(pid  => drawLine(linesG, pos[pid].x, pos[pid].y + BOX_H / 2, pos[pid].x, jY));
+    children.forEach(cid => drawLine(linesG, pos[cid].x, pos[cid].y - BOX_H / 2, pos[cid].x, jY));
+  });
+
+  Object.keys(pos).forEach(idStr => renderBox(g, +idStr, pos[+idStr], false));
+}
+
+// ─── Uitsnede (gefilterd op persoon + lagen) ──────────────────────────────
+
+function drawFilteredTree(focusId, maxUp, maxDown) {
+  const svgEl = document.getElementById('tree-svg');
+  const viewW = svgEl.clientWidth || 900;
+  const viewH = Math.max(window.innerHeight * 0.68, 500);
+  svgEl.setAttribute('height', viewH);
+  const svg = d3.select('#tree-svg');
+  svg.selectAll('*').remove();
+  svg.attr('viewBox', `0 0 ${viewW} ${viewH}`);
+
+  if (!focusId || !nodeMap[focusId]) {
+    svg.append('text').attr('x', viewW / 2).attr('y', viewH / 2)
+      .attr('text-anchor', 'middle').attr('fill', 'var(--tree-text-muted)').attr('font-size', '16px')
+      .text('Kies een persoon om een uitsnede te bekijken.');
+    return;
+  }
+
+  const pos = {};
+
+  // Voorouders omhoog (slot-gebaseerd)
+  const ancSlots = {};
+  function assignAnc(id, gen, slot) {
+    if (!id || gen > maxUp || !nodeMap[id] || ancSlots[id]) return;
+    ancSlots[id] = { gen, slot };
+    const pp = parentMap[id] || [];
+    if (pp[0]) assignAnc(pp[0], gen + 1, 2 * slot);
+    if (pp[1]) assignAnc(pp[1], gen + 1, 2 * slot + 1);
+  }
+  assignAnc(focusId, 0, 0);
+
+  const maxAncGen = Math.max(0, ...Object.values(ancSlots).map(s => s.gen));
+  const ancWidth  = Math.pow(2, maxAncGen) * SLOT_W;
+  Object.entries(ancSlots).forEach(([id, { gen, slot }]) => {
+    const sw = ancWidth / Math.pow(2, gen);
+    pos[id] = { x: slot * sw + sw / 2 - ancWidth / 2, y: -gen * GEN_H };
+  });
+
+  // Partner(s) van de focuspersoon naast hem/haar plaatsen
+  const focusPartners = (partnerMap[focusId] || []).filter(p => nodeMap[p] && !pos[p]);
+  focusPartners.forEach((pid, i) => {
+    pos[pid] = { x: pos[focusId].x + (i + 1) * SLOT_W, y: pos[focusId].y };
+  });
+
+  // Middelpunt tussen focuspersoon en partner(s) als centrum voor nakomelingen
+  const descCenterX = focusPartners.length
+    ? (pos[focusId].x + pos[focusPartners[focusPartners.length - 1]].x) / 2
+    : pos[focusId].x;
+
+  // Nakomelingen omlaag
+  function descW(id, depth, seen = new Set()) {
+    if (depth >= maxDown || seen.has(id)) return SLOT_W;
+    seen.add(id);
+    const kids = (childMap[id] || []).filter(c => nodeMap[c] && !seen.has(c));
+    return kids.length
+      ? Math.max(SLOT_W, kids.reduce((s, c) => s + descW(c, depth + 1, new Set(seen)), 0))
+      : SLOT_W;
+  }
+  function placeDesc(id, x, y, depth, seen = new Set()) {
+    if (depth >= maxDown || seen.has(id)) return;
+    seen.add(id);
+    const kids = (childMap[id] || []).filter(c => nodeMap[c] && !seen.has(c));
+    if (!kids.length) return;
+    const totalW = kids.reduce((s, c) => s + descW(c, depth + 1, new Set(seen)), 0);
+    let cx = x - totalW / 2;
+    kids.forEach(c => {
+      const w = descW(c, depth + 1, new Set(seen));
+      if (!pos[c]) pos[c] = { x: cx + w / 2, y: y + GEN_H };
+      placeDesc(c, cx + w / 2, y + GEN_H, depth + 1, new Set(seen));
+      cx += w;
+    });
+  }
+  placeDesc(focusId, descCenterX, 0, 0);
+
+  // Zoom: focuspersoon gecentreerd
+  const g    = svg.append('g');
+  const zoom = d3.zoom().scaleExtent([0.1, 4]).on('zoom', e => g.attr('transform', e.transform));
+  const initTy = viewH / 2 + maxAncGen * GEN_H * 0.3 + BOX_H;
+  svg.call(zoom).call(zoom.transform, d3.zoomIdentity.translate(viewW / 2, initTy));
+
+  const linesG = g.append('g');
+
+  // Koppellijn tussen focuspersoon en partner(s)
+  focusPartners.forEach(pid => {
+    drawLine(linesG,
+      pos[focusId].x + BOX_W / 2, pos[focusId].y,
+      pos[pid].x - BOX_W / 2,     pos[pid].y);
+  });
+
+  // Verbindingen voorouders
+  Object.keys(ancSlots).forEach(idStr => {
+    const id     = +idStr;
+    const child  = pos[id];
+    const ouders = (parentMap[id] || []).filter(pid => pos[pid]);
+    if (!ouders.length) return;
+    const jY = child.y - BOX_H / 2 - (GEN_H - BOX_H) / 2;
+    drawLine(linesG, child.x, child.y - BOX_H / 2, child.x, jY);
+    if (ouders.length === 2) {
+      const p0 = pos[ouders[0]], p1 = pos[ouders[1]];
+      drawLine(linesG, p0.x, jY, p1.x, jY);
+      drawLine(linesG, p0.x, p0.y + BOX_H / 2, p0.x, jY);
+      drawLine(linesG, p1.x, p1.y + BOX_H / 2, p1.x, jY);
+    } else {
+      const pp0 = pos[ouders[0]];
+      drawLine(linesG, pp0.x, pp0.y + BOX_H / 2, pp0.x, jY);
+      if (pp0.x !== child.x) drawLine(linesG, pp0.x, jY, child.x, jY);
+    }
+  });
+
+  // Verbindingen nakomelingen: groepeer per gezinsgroep (voorkomt dubbele lijnen)
+  const families = {};
+  Object.keys(pos).forEach(idStr => {
+    const id = +idStr;
+    if (ancSlots[id] || id === focusId || focusPartners.includes(id)) return;
+    const pp = (parentMap[id] || []).filter(p => pos[p]).sort((a, b) => a - b);
+    if (!pp.length) return;
+    const key = pp.join('-');
+    if (!families[key]) families[key] = { parents: pp, children: [] };
+    families[key].children.push(id);
+  });
+  Object.values(families).forEach(({ parents, children }) => {
+    const parY  = pos[parents[0]].y;
+    const kidY  = pos[children[0]].y;
+    const jY    = parY + BOX_H / 2 + (kidY - parY - BOX_H) / 2;
+    const allXs = [...parents.map(p => pos[p].x), ...children.map(c => pos[c].x)];
+    drawLine(linesG, Math.min(...allXs), jY, Math.max(...allXs), jY);
+    parents.forEach(pid  => drawLine(linesG, pos[pid].x, pos[pid].y + BOX_H / 2, pos[pid].x, jY));
+    children.forEach(cid => drawLine(linesG, pos[cid].x, pos[cid].y - BOX_H / 2, pos[cid].x, jY));
+  });
+
+  Object.keys(pos).forEach(idStr => {
+    const id = +idStr;
+    renderBox(g, id, pos[id], id === focusId);
+  });
+}
+
+// ─── Weergave starten ─────────────────────────────────────────────────────
+
+function render() {
+  const modus = document.querySelector('input[name="modus"]:checked').value;
+  if (modus === 'volledig') {
+    drawFullTree();
+  } else {
+    const focusId = +document.getElementById('focus-select').value || null;
+    const maxUp   = Math.max(0, +document.getElementById('lagen-omhoog').value || 0);
+    const maxDown = Math.max(0, +document.getElementById('lagen-omlaag').value || 0);
+    drawFilteredTree(focusId, maxUp, maxDown);
+  }
+}
+
+document.querySelectorAll('input[name="modus"]').forEach(r =>
+  r.addEventListener('change', function () {
+    document.getElementById('filter-controls').classList.toggle('visible', this.value === 'filter');
+    render();
+  })
+);
+
+document.getElementById('toon-btn').addEventListener('click', render);
+document.getElementById('focus-select').addEventListener('change', render);
+
+// Bij URL-parameter focus: schakel naar uitsnede-modus
+if (FOCUS_ID) {
+  document.getElementById('modus-filter').checked = true;
+  document.getElementById('filter-controls').classList.add('visible');
+}
+render();
 </script>
 {% endblock %}

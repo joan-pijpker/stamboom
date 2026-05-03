@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="nl" data-bs-theme="light">
+<html lang="nl" data-bs-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,7 +8,7 @@
   <!-- Thema vóór render toepassen om flikkering te voorkomen -->
   <script>
     (function() {
-      const t = localStorage.getItem('theme') || 'light';
+      const t = localStorage.getItem('theme') || 'dark';
       document.documentElement.setAttribute('data-bs-theme', t);
     })();
   </script>
@@ -83,7 +83,7 @@
   }
 
   // Zet icoon correct bij laden
-  applyTheme(document.documentElement.getAttribute('data-bs-theme') || 'light');
+  applyTheme(document.documentElement.getAttribute('data-bs-theme') || 'dark');
 
   toggle.addEventListener('click', () => {
     const next = document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';

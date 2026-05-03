@@ -58,11 +58,17 @@ def stamboom(request: Request, focus: int = 0, db: Session = Depends(get_db)):
         for o in ouderschappen
     ]
 
+    alle_relaties = db.query(Relatie).all()
+    partners = [
+        {"a": r.persoon_a_id, "b": r.persoon_b_id}
+        for r in alle_relaties
+    ]
+
     return templates.TemplateResponse(
         request, "stamboom.html",
         {
             "personen": alle_personen,
-            "boom_data": {"nodes": nodes, "links": links},
+            "boom_data": {"nodes": nodes, "links": links, "partners": partners},
             "focus": focus,
         },
     )

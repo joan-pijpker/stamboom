@@ -9,7 +9,7 @@ wheels/
 # Virtual environments
 .venv
 
-# Database en uploads (voorbeeld.db mag wel mee)
+# Database en uploads (alleen databases/voorbeeld.db mag mee)
 *.db
-!voorbeeld.db
+!databases/voorbeeld.db
 uploads/

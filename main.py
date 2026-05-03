@@ -1,16 +1,27 @@
+import os
+import re
+import shutil
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi import Depends, FastAPI, Form, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from database import engine, get_db
-from models import Base, Ouderschap, Persoon, Relatie
+from database import DB_DIR, get_db, get_engine_for, list_databases
+from models import Base, Ouderschap, Persoon, Relatie  # noqa: F401 – registreert modellen bij Base
 from routers import gedcom, personen, relaties
 
-Base.metadata.create_all(bind=engine)
+# ── Databases-map aanmaken en bestaande bestanden migreren ────────────────
+os.makedirs(DB_DIR, exist_ok=True)
+for _bestand in ["stamboom.db", "voorbeeld.db"]:
+    _src, _dst = _bestand, os.path.join(DB_DIR, _bestand)
+    if os.path.exists(_src) and not os.path.exists(_dst):
+        shutil.copy2(_src, _dst)
+
+# Zorg dat de standaarddatabase altijd bestaat
+get_engine_for("stamboom")
 
 app = FastAPI(title="Stamboom", docs_url="/api/docs")
 
@@ -25,6 +36,39 @@ app.include_router(gedcom.router)
 templates = Jinja2Templates(directory="templates")
 
 
+# ── Middleware: actieve database beschikbaar stellen in alle templates ─────
+@app.middleware("http")
+async def add_db_state(request: Request, call_next):
+    actief = request.cookies.get("actief_db", "stamboom")
+    if not os.path.exists(os.path.join(DB_DIR, f"{actief}.db")):
+        actief = "stamboom"
+    request.state.actief_db = actief
+    request.state.databases = list_databases()
+    return await call_next(request)
+
+
+# ── Database-beheer ────────────────────────────────────────────────────────
+@app.post("/databases/selecteer")
+def selecteer_database(naam: str = Form(...)):
+    if not os.path.exists(os.path.join(DB_DIR, f"{naam}.db")):
+        naam = "stamboom"
+    response = RedirectResponse(url="/", status_code=303)
+    response.set_cookie("actief_db", naam, max_age=365 * 24 * 3600)
+    return response
+
+
+@app.post("/databases/nieuw")
+def nieuw_database(naam: str = Form(...)):
+    naam = re.sub(r"[^a-zA-Z0-9_-]", "", naam)[:50]
+    if not naam:
+        return RedirectResponse(url="/", status_code=303)
+    get_engine_for(naam)  # maakt bestand + schema aan
+    response = RedirectResponse(url="/", status_code=303)
+    response.set_cookie("actief_db", naam, max_age=365 * 24 * 3600)
+    return response
+
+
+# ── Paginaroutes ───────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(

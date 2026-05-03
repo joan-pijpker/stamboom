@@ -56,6 +56,39 @@
         <li class="nav-item"><a class="nav-link" href="/gedcom/"><i class="bi bi-arrow-left-right"></i> GEDCOM</a></li>
       </ul>
       <div class="d-flex align-items-center gap-2">
+        <!-- Database-kiezer -->
+        <div class="dropdown">
+          <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button"
+                  data-bs-toggle="dropdown" aria-expanded="false" title="Wissel familie-database">
+            <i class="bi bi-database-fill"></i> {{ request.state.actief_db }}
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end" style="min-width: 220px;">
+            {% for db in request.state.databases %}
+            <li>
+              <form method="post" action="/databases/selecteer">
+                <button type="submit" name="naam" value="{{ db }}"
+                        class="dropdown-item {% if db == request.state.actief_db %}active{% endif %}">
+                  <i class="bi bi-database{% if db == request.state.actief_db %}-fill{% endif %} me-1"></i>{{ db }}
+                </button>
+              </form>
+            </li>
+            {% endfor %}
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <form method="post" action="/databases/nieuw" class="px-3 py-1">
+                <div class="input-group input-group-sm">
+                  <input type="text" name="naam" class="form-control"
+                         placeholder="Naam nieuwe familie…"
+                         pattern="[a-zA-Z0-9_\-]+" title="Alleen letters, cijfers, _ en -"
+                         required maxlength="50">
+                  <button type="submit" class="btn btn-outline-primary" title="Aanmaken">
+                    <i class="bi bi-plus-lg"></i>
+                  </button>
+                </div>
+              </form>
+            </li>
+          </ul>
+        </div>
         <button id="theme-toggle" class="btn btn-sm btn-outline-light" title="Wissel thema">
           <i class="bi bi-moon-stars" id="theme-icon"></i>
         </button>

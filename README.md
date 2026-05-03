@@ -6,10 +6,11 @@ Een webapplicatie voor het bijhouden van genealogische gegevens. Leg familielede
 
 - **Personen beheren** — Voornaam, achternaam, geboorte- en sterfgegevens, geslacht en notities
 - **Relaties vastleggen** — Huwelijk, samenwonen of scheiding, met datum en plaats
-- **Ouderschappen** — Biologisch, adopptief of pleegouderschap
+- **Ouderschappen** — Biologisch, adoptief of pleegouderschap
 - **Bijlagen** — Foto's en documenten koppelen aan personen of relaties
-- **Stamboomvisualisatie** — Interactieve grafiek op basis van D3.js
+- **Stamboomvisualisatie** — Interactieve D3.js-grafiek met volledig overzicht en uitsnede-modus
 - **GEDCOM-ondersteuning** — Importeer en exporteer naar het standaard genealogieformaat
+- **Meerdere databases** — Beheer meerdere losse families in aparte databases
 
 ## Vereisten
 
@@ -39,24 +40,56 @@ pip install -e .
 uv run uvicorn main:app --reload
 
 # Of na activeren van de virtualenv
-uvicorn main:app --reload
+.venv/bin/uvicorn main:app --reload
 ```
 
 De applicatie is daarna bereikbaar op [http://localhost:8000](http://localhost:8000).
 
 ## Voorbeelddatabase
 
-De repository bevat `voorbeeld.db` met een fictieve familie over drie generaties. Start de app hiermee om de functionaliteit direct te kunnen verkennen:
-
-```bash
-DATABASE_URL=sqlite:///./voorbeeld.db uvicorn main:app --reload
-```
+De repository bevat `databases/voorbeeld.db` met een fictieve familie over drie generaties. Na het starten van de app kun je deze database kiezen via het database-menu in de navigatiebalk (het database-icoon rechtsboven).
 
 Om de voorbeelddatabase opnieuw aan te maken:
 
 ```bash
 python maak_voorbeeld_data.py
 ```
+
+## Meerdere databases
+
+De applicatie ondersteunt meerdere losse databases, zodat je verschillende families gescheiden kunt bijhouden.
+
+**Wisselen via de interface**
+
+Klik in de navigatiebalk op het database-icoon (rechtsboven). In het uitklapmenu zie je alle beschikbare databases. Klik op een naam om naar die database over te schakelen. De keuze wordt opgeslagen in een cookie en blijft actief bij de volgende sessie.
+
+**Nieuwe database aanmaken via de interface**
+
+Onderin hetzelfde uitklapmenu staat een tekstveld. Typ de naam van de nieuwe familie en klik op het plusje. De database wordt direct aangemaakt en geselecteerd. Toegestane tekens: letters, cijfers, `-` en `_`.
+
+**Nieuwe database aanmaken via de bestandsmap**
+
+Je kunt ook handmatig een leeg SQLite-bestand aanmaken in de map `databases/`:
+
+```bash
+# Naam mag alleen letters, cijfers, - en _ bevatten
+touch databases/mijnfamilie.db
+```
+
+De app herkent het bestand bij de volgende herstart en vult het schema automatisch in.
+
+**Databases en versiebeheer**
+
+Alleen `databases/voorbeeld.db` wordt meegenomen in git. Alle andere `.db`-bestanden in `databases/` staan in `.gitignore` en worden nooit naar GitHub gepusht.
+
+## Stamboomvisualisatie
+
+De visualisatie heeft twee modi, te kiezen via de knoppen bovenaan de pagina:
+
+- **Volledig overzicht** — Toont alle personen in de database in één boom. Aangetrouwde partners staan verticaal gestapeld onder hun partner uit de familielijn.
+- **Uitsnede** — Kies een persoon en geef aan hoeveel generaties omhoog (voorouders) en omlaag (nakomelingen) je wilt zien. Bij 0 lagen omlaag worden alleen de focuspersoon en diens partner(s) getoond.
+
+Navigeren kan door te slepen en te scrollen (zoom). Klikken op een persoonsvakje opent de detailpagina.
 
 ## Databasemigraties
 
@@ -74,25 +107,21 @@ alembic upgrade head
 
 ```
 stamboom/
-├── main.py                  # FastAPI-applicatie en startpunt
+├── main.py                  # FastAPI-applicatie, routes en middleware
 ├── models.py                # SQLAlchemy-modellen
-├── database.py              # Databaseverbinding
+├── database.py              # Database-engine per familie, get_db dependency
 ├── schemas.py               # Pydantic-validatieschema's
 ├── routers/
-│   ├── personen.py          # Persoonbeheer
+│   ├── personen.py          # Persoonbeheer (CRUD, bijlagen, ouderschappen)
 │   ├── relaties.py          # Relatiebeheer
 │   └── gedcom.py            # GEDCOM import/export
 ├── services/
-│   └── gedcom_service.py    # GEDCOM-verwerking
+│   └── gedcom_service.py    # GEDCOM 5.5 parser en generator
 ├── templates/               # Jinja2 HTML-templates
-├── static/                  # CSS en JavaScript
+├── static/                  # Statische bestanden
 ├── alembic/                 # Databasemigraties
-├── voorbeeld.db             # Voorbeelddatabase met fictieve data
+├── databases/               # SQLite-bestanden (één per familie)
+│   └── voorbeeld.db         # Voorbeelddatabase met fictieve data
+├── uploads/                 # Geüploade foto's en documenten
 └── maak_voorbeeld_data.py   # Script om voorbeelddatabase aan te maken
 ```
-
-## Omgevingsvariabelen
-
-| Variabele      | Standaard                  | Omschrijving                        |
-|----------------|----------------------------|-------------------------------------|
-| `DATABASE_URL` | `sqlite:///./stamboom.db`  | Verbindings-URL van de database     |

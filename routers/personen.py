@@ -10,7 +10,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import Bijlage, BijlageType, Geslacht, Ouderschap, Persoon
+from models import Bijlage, BijlageType, Geslacht, Ouderschap, Persoon, Relatie
 
 
 def _parse_date(s: str) -> date | None:
@@ -146,11 +146,60 @@ def persoon_bewerken(
     return RedirectResponse(url=f"/personen/{persoon_id}", status_code=303)
 
 
-@router.post("/{persoon_id}/verwijderen")
-def persoon_verwijderen(persoon_id: int, db: Session = Depends(get_db)):
+@router.get("/{persoon_id}/verwijderen", response_class=HTMLResponse)
+def persoon_verwijderen_bevestig(
+    request: Request, persoon_id: int, db: Session = Depends(get_db)
+):
     persoon = db.get(Persoon, persoon_id)
     if not persoon:
         raise HTTPException(status_code=404, detail="Persoon niet gevonden")
+    return templates.TemplateResponse(
+        request, "persoon_verwijderen.html", {"persoon": persoon}
+    )
+
+
+@router.post("/{persoon_id}/verwijderen")
+def persoon_verwijderen(
+    persoon_id: int,
+    force: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    persoon = db.get(Persoon, persoon_id)
+    if not persoon:
+        raise HTTPException(status_code=404, detail="Persoon niet gevonden")
+
+    heeft_connecties = (
+        persoon.relaties or persoon.ouder_van or persoon.kind_van or persoon.bijlagen
+    )
+    if heeft_connecties and not force:
+        return RedirectResponse(
+            url=f"/personen/{persoon_id}/verwijderen", status_code=303
+        )
+
+    if force:
+        relaties = db.query(Relatie).filter(
+            (Relatie.persoon_a_id == persoon_id) | (Relatie.persoon_b_id == persoon_id)
+        ).all()
+        for rel in relaties:
+            for b in list(rel.bijlagen):
+                if os.path.exists(b.bestandspad):
+                    os.remove(b.bestandspad)
+                db.delete(b)
+            db.delete(rel)
+
+        ouderschappen = db.query(Ouderschap).filter(
+            (Ouderschap.ouder_id == persoon_id) | (Ouderschap.kind_id == persoon_id)
+        ).all()
+        for oud in ouderschappen:
+            db.delete(oud)
+
+        for b in list(persoon.bijlagen):
+            if os.path.exists(b.bestandspad):
+                os.remove(b.bestandspad)
+            db.delete(b)
+
+        db.flush()
+
     db.delete(persoon)
     db.commit()
     return RedirectResponse(url="/personen/", status_code=303)
@@ -190,7 +239,10 @@ async def bijlage_uploaden(
 
 @router.post("/{persoon_id}/bijlagen/{bijlage_id}/verwijderen")
 def bijlage_verwijderen(
-    persoon_id: int, bijlage_id: int, db: Session = Depends(get_db)
+    persoon_id: int,
+    bijlage_id: int,
+    terug: str = Form(""),
+    db: Session = Depends(get_db),
 ):
     bijlage = db.get(Bijlage, bijlage_id)
     if not bijlage or bijlage.persoon_id != persoon_id:
@@ -199,6 +251,8 @@ def bijlage_verwijderen(
         os.remove(bijlage.bestandspad)
     db.delete(bijlage)
     db.commit()
+    if terug == "verwijderen":
+        return RedirectResponse(url=f"/personen/{persoon_id}/verwijderen", status_code=303)
     return RedirectResponse(url=f"/personen/{persoon_id}", status_code=303)
 
 
@@ -223,11 +277,16 @@ def ouderschap_toevoegen(
 
 @router.post("/{persoon_id}/ouderschap/{ouderschap_id}/verwijderen")
 def ouderschap_verwijderen(
-    persoon_id: int, ouderschap_id: int, db: Session = Depends(get_db)
+    persoon_id: int,
+    ouderschap_id: int,
+    terug: str = Form(""),
+    db: Session = Depends(get_db),
 ):
     ouderschap = db.get(Ouderschap, ouderschap_id)
     if not ouderschap:
         raise HTTPException(status_code=404, detail="Ouderschap niet gevonden")
     db.delete(ouderschap)
     db.commit()
+    if terug == "verwijderen":
+        return RedirectResponse(url=f"/personen/{persoon_id}/verwijderen", status_code=303)
     return RedirectResponse(url=f"/personen/{persoon_id}", status_code=303)

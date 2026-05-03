@@ -13,12 +13,9 @@
     <a href="/personen/{{ persoon.id }}/bewerken" class="btn btn-outline-primary btn-sm">
       <i class="bi bi-pencil"></i> Bewerken
     </a>
-    <form method="post" action="/personen/{{ persoon.id }}/verwijderen"
-          onsubmit="return confirm('Weet je zeker dat je {{ persoon.voornaam }} wilt verwijderen?')">
-      <button type="submit" class="btn btn-outline-danger btn-sm">
-        <i class="bi bi-trash"></i> Verwijderen
-      </button>
-    </form>
+    <a href="/personen/{{ persoon.id }}/verwijderen" class="btn btn-outline-danger btn-sm">
+      <i class="bi bi-trash"></i> Verwijderen
+    </a>
   </div>
 </div>
 

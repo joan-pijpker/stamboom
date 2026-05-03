@@ -127,10 +127,18 @@ def relatie_bewerken(
 
 
 @router.post("/{relatie_id}/verwijderen")
-def relatie_verwijderen(relatie_id: int, db: Session = Depends(get_db)):
+def relatie_verwijderen(
+    relatie_id: int,
+    terug_persoon_id: int = Form(0),
+    db: Session = Depends(get_db),
+):
     relatie = db.get(Relatie, relatie_id)
     if not relatie:
         raise HTTPException(status_code=404, detail="Relatie niet gevonden")
     db.delete(relatie)
     db.commit()
+    if terug_persoon_id:
+        return RedirectResponse(
+            url=f"/personen/{terug_persoon_id}/verwijderen", status_code=303
+        )
     return RedirectResponse(url="/relaties/", status_code=303)

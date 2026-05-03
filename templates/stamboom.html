@@ -72,11 +72,12 @@
 const BOOM_DATA = {{ boom_data | tojson }};
 const FOCUS_ID  = {{ focus or 'null' }};
 
-const BOX_W  = 158;
-const BOX_H  = 70;
-const BOX_R  = 7;
-const GEN_H  = 160;
-const SLOT_W = BOX_W + 45;
+const BOX_W      = 158;
+const BOX_H      = 70;
+const BOX_R      = 7;
+const GEN_H      = 220;   // ruimte voor koppelpaar + verbindingslijnen
+const SLOT_W     = BOX_W + 45;
+const COUPLE_GAP = 4;     // ruimte tussen de twee vakjes van een koppel
 
 const nodeMap   = {};
 const parentMap = {};
@@ -182,36 +183,67 @@ function drawFullTree() {
     });
   }
 
-  // Subboombreedtes (recursief, cycle-veilig via seen)
+  // Bepaal welke personen als "aangetrouwd" (secondary) onder hun partner komen
+  // Regel: geen eigen ouders in de data + partner heeft wel ouders → secondary
+  // Als beide roots: degene met het hogere id is secondary
+  const secondaries = new Set();
+  BOOM_DATA.nodes.forEach(n => {
+    const nHasParents = (parentMap[n.id] || []).length > 0;
+    if (nHasParents) return;
+    (partnerMap[n.id] || []).forEach(pid => {
+      const pHasParents = (parentMap[pid] || []).length > 0;
+      if (pHasParents || n.id > pid) secondaries.add(n.id);
+    });
+  });
+
+  // Subboombreedtes: tel kinderen van primaire + aangetrouwde partner mee
   function subtreeW(id, seen = new Set()) {
-    if (seen.has(id)) return SLOT_W;
+    if (seen.has(id) || secondaries.has(id)) return SLOT_W;
     seen.add(id);
-    const kids = (childMap[id] || []).filter(c => nodeMap[c] && !seen.has(c));
-    return kids.length
-      ? Math.max(SLOT_W, kids.reduce((s, c) => s + subtreeW(c, new Set(seen)), 0))
+    const allKids = new Set(childMap[id] || []);
+    (partnerMap[id] || []).filter(p => secondaries.has(p))
+      .forEach(p => (childMap[p] || []).forEach(c => allKids.add(c)));
+    const kidsArr = [...allKids].filter(c => nodeMap[c] && !seen.has(c));
+    return kidsArr.length
+      ? Math.max(SLOT_W, kidsArr.reduce((s, c) => s + subtreeW(c, new Set(seen)), 0))
       : SLOT_W;
   }
 
-  // Plaatsing: top-down, sla al geplaatste nodes over
+  // Plaatsing: primary op generatierij, secondary direct daaronder
   const pos = {};
   function placeNode(id, x, seen = new Set()) {
-    if (pos[id] !== undefined || seen.has(id)) return;
+    if (pos[id] !== undefined || seen.has(id) || secondaries.has(id)) return;
     seen.add(id);
     pos[id] = { x, y: gen[id] * GEN_H };
-    const kids = (childMap[id] || []).filter(c => nodeMap[c] && pos[c] === undefined && !seen.has(c));
-    if (!kids.length) return;
-    const totalW = kids.reduce((s, c) => s + subtreeW(c, new Set(seen)), 0);
+
+    // Aangetrouwde partner(s) direct onder de primary
+    let secY = gen[id] * GEN_H + BOX_H + COUPLE_GAP;
+    (partnerMap[id] || []).forEach(pid => {
+      if (secondaries.has(pid) && pos[pid] === undefined) {
+        pos[pid] = { x, y: secY };
+        secY += BOX_H + COUPLE_GAP;
+      }
+    });
+
+    // Kinderen van primary én aangetrouwde partner(s)
+    const allKids = new Set(childMap[id] || []);
+    (partnerMap[id] || []).filter(p => secondaries.has(p))
+      .forEach(p => (childMap[p] || []).forEach(c => allKids.add(c)));
+    const kidsArr = [...allKids].filter(c => nodeMap[c] && pos[c] === undefined && !seen.has(c));
+    if (!kidsArr.length) return;
+
+    const totalW = kidsArr.reduce((s, c) => s + subtreeW(c, new Set(seen)), 0);
     let cx = x - totalW / 2;
-    kids.forEach(c => {
+    kidsArr.forEach(c => {
       const w = subtreeW(c, new Set(seen));
       placeNode(c, cx + w / 2, new Set(seen));
       cx += w;
     });
   }
 
-  // Roots (geen ouders): sorteer stabiel op id
+  // Roots: alleen primaire personen (geen secondaries)
   const roots = BOOM_DATA.nodes
-    .filter(n => !(parentMap[n.id] || []).length)
+    .filter(n => !(parentMap[n.id] || []).length && !secondaries.has(n.id))
     .sort((a, b) => a.id - b.id);
 
   let offsetX = 0;
@@ -248,7 +280,7 @@ function drawFullTree() {
 
   const linesG = g.append('g');
 
-  // Verbindingen: groepeer per gezinsgroep (unieke combinatie van ouders)
+  // Verbindingen per gezinsgroep
   const families = {};
   BOOM_DATA.nodes.forEach(n => {
     if (!pos[n.id]) return;
@@ -260,13 +292,28 @@ function drawFullTree() {
   });
 
   Object.values(families).forEach(({ parents, children }) => {
-    const parY = pos[parents[0]].y;
-    const kidY = pos[children[0]].y;
-    const jY   = parY + BOX_H / 2 + (kidY - parY - BOX_H) / 2;
-    const allXs = [...parents.map(p => pos[p].x), ...children.map(c => pos[c].x)];
-    drawLine(linesG, Math.min(...allXs), jY, Math.max(...allXs), jY);
-    parents.forEach(pid  => drawLine(linesG, pos[pid].x, pos[pid].y + BOX_H / 2, pos[pid].x, jY));
-    children.forEach(cid => drawLine(linesG, pos[cid].x, pos[cid].y - BOX_H / 2, pos[cid].x, jY));
+    const sameX = parents.every(p => pos[p].x === pos[parents[0]].x);
+    if (sameX) {
+      // Verticaal koppel: lijn vanaf onderkant van het laagste vakje
+      const fx      = pos[parents[0]].x;
+      const bottomY = Math.max(...parents.map(p => pos[p].y)) + BOX_H / 2;
+      const kidTopY = pos[children[0]].y - BOX_H / 2;
+      const jY      = bottomY + (kidTopY - bottomY) / 2;
+      drawLine(linesG, fx, bottomY, fx, jY);
+      const xs = children.map(c => pos[c].x);
+      if (Math.min(...xs) < Math.max(...xs) || xs[0] !== fx)
+        drawLine(linesG, Math.min(...xs, fx), jY, Math.max(...xs, fx), jY);
+      children.forEach(c => drawLine(linesG, pos[c].x, pos[c].y - BOX_H / 2, pos[c].x, jY));
+    } else {
+      // Horizontale ouders (beide uit eigen familielijn)
+      const parY  = pos[parents[0]].y;
+      const kidY  = pos[children[0]].y;
+      const jY    = parY + BOX_H / 2 + (kidY - parY - BOX_H) / 2;
+      const allXs = [...parents.map(p => pos[p].x), ...children.map(c => pos[c].x)];
+      drawLine(linesG, Math.min(...allXs), jY, Math.max(...allXs), jY);
+      parents.forEach(pid  => drawLine(linesG, pos[pid].x, pos[pid].y + BOX_H / 2, pos[pid].x, jY));
+      children.forEach(cid => drawLine(linesG, pos[cid].x, pos[cid].y - BOX_H / 2, pos[cid].x, jY));
+    }
   });
 
   Object.keys(pos).forEach(idStr => renderBox(g, +idStr, pos[+idStr], false));
@@ -310,16 +357,13 @@ function drawFilteredTree(focusId, maxUp, maxDown) {
     pos[id] = { x: slot * sw + sw / 2 - ancWidth / 2, y: -gen * GEN_H };
   });
 
-  // Partner(s) van de focuspersoon naast hem/haar plaatsen
+  // Partner(s) van de focuspersoon verticaal onder hem/haar plaatsen
   const focusPartners = (partnerMap[focusId] || []).filter(p => nodeMap[p] && !pos[p]);
   focusPartners.forEach((pid, i) => {
-    pos[pid] = { x: pos[focusId].x + (i + 1) * SLOT_W, y: pos[focusId].y };
+    pos[pid] = { x: pos[focusId].x, y: pos[focusId].y + (BOX_H + COUPLE_GAP) * (i + 1) };
   });
 
-  // Middelpunt tussen focuspersoon en partner(s) als centrum voor nakomelingen
-  const descCenterX = focusPartners.length
-    ? (pos[focusId].x + pos[focusPartners[focusPartners.length - 1]].x) / 2
-    : pos[focusId].x;
+  const descCenterX = pos[focusId].x;
 
   // Nakomelingen omlaag
   function descW(id, depth, seen = new Set()) {
@@ -344,7 +388,21 @@ function drawFilteredTree(focusId, maxUp, maxDown) {
       cx += w;
     });
   }
-  placeDesc(focusId, descCenterX, 0, 0);
+
+  // Kinderen van focuspersoon én partner(s) samen plaatsen
+  const allFocusKids = new Set(childMap[focusId] || []);
+  focusPartners.forEach(pid => (childMap[pid] || []).forEach(c => allFocusKids.add(c)));
+  const focusKidsArr = [...allFocusKids].filter(c => nodeMap[c]);
+  if (maxDown > 0 && focusKidsArr.length) {
+    const totalW = focusKidsArr.reduce((s, c) => s + descW(c, 1, new Set()), 0);
+    let cx = descCenterX - totalW / 2;
+    focusKidsArr.forEach(c => {
+      const w = descW(c, 1, new Set());
+      if (!pos[c]) pos[c] = { x: cx + w / 2, y: GEN_H };
+      placeDesc(c, cx + w / 2, GEN_H, 1, new Set());
+      cx += w;
+    });
+  }
 
   // Zoom: focuspersoon gecentreerd
   const g    = svg.append('g');
@@ -353,13 +411,6 @@ function drawFilteredTree(focusId, maxUp, maxDown) {
   svg.call(zoom).call(zoom.transform, d3.zoomIdentity.translate(viewW / 2, initTy));
 
   const linesG = g.append('g');
-
-  // Koppellijn tussen focuspersoon en partner(s)
-  focusPartners.forEach(pid => {
-    drawLine(linesG,
-      pos[focusId].x + BOX_W / 2, pos[focusId].y,
-      pos[pid].x - BOX_W / 2,     pos[pid].y);
-  });
 
   // Verbindingen voorouders
   Object.keys(ancSlots).forEach(idStr => {
@@ -393,13 +444,26 @@ function drawFilteredTree(focusId, maxUp, maxDown) {
     families[key].children.push(id);
   });
   Object.values(families).forEach(({ parents, children }) => {
-    const parY  = pos[parents[0]].y;
-    const kidY  = pos[children[0]].y;
-    const jY    = parY + BOX_H / 2 + (kidY - parY - BOX_H) / 2;
-    const allXs = [...parents.map(p => pos[p].x), ...children.map(c => pos[c].x)];
-    drawLine(linesG, Math.min(...allXs), jY, Math.max(...allXs), jY);
-    parents.forEach(pid  => drawLine(linesG, pos[pid].x, pos[pid].y + BOX_H / 2, pos[pid].x, jY));
-    children.forEach(cid => drawLine(linesG, pos[cid].x, pos[cid].y - BOX_H / 2, pos[cid].x, jY));
+    const sameX = parents.every(p => pos[p].x === pos[parents[0]].x);
+    if (sameX) {
+      const fx      = pos[parents[0]].x;
+      const bottomY = Math.max(...parents.map(p => pos[p].y)) + BOX_H / 2;
+      const kidTopY = pos[children[0]].y - BOX_H / 2;
+      const jY      = bottomY + (kidTopY - bottomY) / 2;
+      drawLine(linesG, fx, bottomY, fx, jY);
+      const xs = children.map(c => pos[c].x);
+      if (Math.min(...xs) < Math.max(...xs) || xs[0] !== fx)
+        drawLine(linesG, Math.min(...xs, fx), jY, Math.max(...xs, fx), jY);
+      children.forEach(c => drawLine(linesG, pos[c].x, pos[c].y - BOX_H / 2, pos[c].x, jY));
+    } else {
+      const parY  = pos[parents[0]].y;
+      const kidY  = pos[children[0]].y;
+      const jY    = parY + BOX_H / 2 + (kidY - parY - BOX_H) / 2;
+      const allXs = [...parents.map(p => pos[p].x), ...children.map(c => pos[c].x)];
+      drawLine(linesG, Math.min(...allXs), jY, Math.max(...allXs), jY);
+      parents.forEach(pid  => drawLine(linesG, pos[pid].x, pos[pid].y + BOX_H / 2, pos[pid].x, jY));
+      children.forEach(cid => drawLine(linesG, pos[cid].x, pos[cid].y - BOX_H / 2, pos[cid].x, jY));
+    }
   });
 
   Object.keys(pos).forEach(idStr => {
